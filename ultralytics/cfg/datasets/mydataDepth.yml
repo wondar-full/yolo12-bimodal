@@ -1,0 +1,28 @@
+path: /data2/user/2024/lzy/Datasets/VisDrone2019-DET-YOLO/VisDrone2YOLO
+
+train: VisDrone2019-DET-train/images/rgb
+train_depth: VisDrone2019-DET-train/images/d
+val: VisDrone2019-DET-val/images/rgb
+val_depth: VisDrone2019-DET-val/images/d
+test: VisDrone2019-DET-val/images/rgb
+test_depth: VisDrone2019-DET-val/images/d
+
+
+names:
+  0: Pedestrian
+  1: People
+  2: Bicycle
+  3: Car
+  4: Van
+  5: Truck
+  6: Tricycle
+  7: Awning-tricycle
+  8: Bus
+  9: Motor
+
+nc: 10
+
+channels: 4
+secondary_channels: 1
+secondary_modal_priority:
+  - _depth

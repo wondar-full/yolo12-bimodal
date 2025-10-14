@@ -7,7 +7,7 @@ from collections import defaultdict
 from itertools import repeat
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import cv2
 import numpy as np
@@ -19,6 +19,7 @@ from ultralytics.utils import LOCAL_RANK, LOGGER, NUM_THREADS, TQDM, colorstr
 from ultralytics.utils.instance import Instances
 from ultralytics.utils.ops import resample_segments, segments2boxes
 from ultralytics.utils.torch_utils import TORCHVISION_0_18
+from ultralytics.utils.patches import imread
 
 from .augment import (
     Compose,
@@ -87,7 +88,23 @@ class YOLODataset(BaseDataset):
         self.use_obb = task == "obb"
         self.data = data
         assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
+        self._input_img_paths = self._ensure_list(kwargs.get("img_path", args[0] if args else None))
+        self._depth_pairs: list[tuple[Path, Path]] = []
+        self.depth_files: list[str] = []
+        self._depth_enabled = False
+        self._depth_split: str | None = None
+
+        kwargs = kwargs.copy()
+        if self.data and self._has_depth_config():
+            cache_opt = kwargs.get("cache", None)
+            if cache_opt:
+                LOGGER.warning(
+                    "Depth-assisted training disables image caching to keep RGB and depth modalities aligned."
+                )
+            kwargs["cache"] = False
+
         super().__init__(*args, channels=self.data.get("channels", 3), **kwargs)
+        self._initialize_depth_paths()
 
     def cache_labels(self, path: Path = Path("./labels.cache")) -> dict:
         """
@@ -156,6 +173,200 @@ class YOLODataset(BaseDataset):
         x["msgs"] = msgs  # warnings
         save_dataset_cache_file(self.prefix, path, x, DATASET_CACHE_VERSION)
         return x
+
+    @staticmethod
+    def _ensure_list(value: Any) -> list:
+        """Return value as list while treating strings as single entries."""
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        return [value]
+
+    def _has_depth_config(self) -> bool:
+        """Check if depth modality paths are defined in the dataset config."""
+        if not self.data:
+            return False
+        return any(self.data.get(f"{split}_depth") for split in ("train", "val", "test"))
+
+    def _initialize_depth_paths(self) -> None:
+        """Build lookup table that maps RGB image paths to paired depth images."""
+        if not self._has_depth_config() or not self.im_files:
+            return
+
+        split = self._infer_depth_split()
+        if split is None:
+            return
+
+        depth_entry = self.data.get(f"{split}_depth")
+        if not depth_entry:
+            return
+
+        rgb_roots = self._collect_existing_dirs(self._input_img_paths)
+        depth_roots = self._resolve_modal_roots(depth_entry)
+        if not rgb_roots:
+            LOGGER.warning(f"{self.prefix}Unable to locate RGB root directories for depth alignment.")
+            return
+        if not depth_roots:
+            LOGGER.warning(f"{self.prefix}Unable to locate depth root directories defined in data.yaml.")
+            return
+        if len(depth_roots) == 1 and len(rgb_roots) > 1:
+            depth_roots = depth_roots * len(rgb_roots)
+        if len(rgb_roots) != len(depth_roots):
+            LOGGER.warning(
+                f"{self.prefix}Mismatched RGB ({len(rgb_roots)}) and depth ({len(depth_roots)}) roots; depth disabled."
+            )
+            return
+
+        self._depth_pairs = list(zip(rgb_roots, depth_roots))
+        depth_files: list[str] = []
+        missing: list[str] = []
+        for im_path_str in self.im_files:
+            depth_path = self._match_depth_path(Path(im_path_str))
+            if depth_path is None or not depth_path.exists():
+                missing.append(im_path_str)
+            else:
+                depth_files.append(str(depth_path))
+
+        if missing:
+            example = missing[0]
+            raise FileNotFoundError(
+                f"Depth image not found for {len(missing)} samples. Example missing pair: '{example}'.\n"
+                "Ensure depth files mirror the RGB directory structure and filenames."
+            )
+
+        if depth_files:
+            self.depth_files = depth_files
+            self._depth_enabled = True
+            self._depth_split = split
+            LOGGER.info(
+                f"{self.prefix}Depth modality enabled on split '{split}' with {len(self.depth_files)} paired samples."
+            )
+
+    def _infer_depth_split(self) -> str | None:
+        """Infer which dataset split (train/val/test) this instance corresponds to."""
+        if not self.data:
+            return None
+
+        resolved_inputs = set()
+        for path in self._input_img_paths:
+            if not path:
+                continue
+            try:
+                resolved_inputs.add(Path(path).resolve())
+            except Exception:
+                continue
+
+        for split in ("train", "val", "test"):
+            for candidate in self._ensure_list(self.data.get(split)):
+                if not candidate:
+                    continue
+                try:
+                    if Path(candidate).resolve() in resolved_inputs:
+                        return split
+                except Exception:
+                    continue
+        return None
+
+    def _resolve_modal_roots(self, entries: Iterable[str | Path | None] | str | None) -> list[Path]:
+        """Resolve modal-specific root paths relative to dataset root when necessary."""
+        roots: list[Path] = []
+        base_path = None
+        if self.data and self.data.get("path"):
+            try:
+                base_path = Path(self.data["path"]).resolve()
+            except Exception:
+                base_path = None
+
+        for item in self._ensure_list(entries):
+            candidate: Path | None = None
+            try:
+                path_obj = Path(item)
+            except Exception:
+                continue
+
+            if path_obj.is_absolute():
+                candidate = path_obj
+            elif base_path is not None:
+                candidate = base_path / path_obj
+            else:
+                candidate = path_obj
+
+            try:
+                resolved = candidate.resolve()
+            except Exception:
+                continue
+
+            if resolved.exists():
+                roots.append(resolved)
+        return roots
+
+    @staticmethod
+    def _collect_existing_dirs(paths: Iterable[str | Path | None]) -> list[Path]:
+        """Return a list of existing directory paths from an iterable of path-like inputs."""
+        collected: list[Path] = []
+        for path in paths:
+            if not path:
+                continue
+            try:
+                p = Path(path).resolve()
+            except Exception:
+                continue
+            if p.exists():
+                collected.append(p)
+        return collected
+
+    def _match_depth_path(self, image_path: Path) -> Path | None:
+        """Given an RGB image path, locate the corresponding depth image path using directory pairs."""
+        for rgb_root, depth_root in self._depth_pairs:
+            try:
+                rel = image_path.relative_to(rgb_root)
+            except ValueError:
+                continue
+
+            candidate = depth_root / rel
+            if candidate.exists():
+                return candidate
+            parent = candidate.parent
+            if parent.exists():
+                matches = list(parent.glob(candidate.stem + ".*"))
+                for match in matches:
+                    if match.exists():
+                        return match
+        return None
+
+    def load_image(self, i: int, rect_mode: bool = True) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
+        """Load RGB image and append paired depth channel when available."""
+        im, hw0, hw = super().load_image(i, rect_mode)
+        if not self._depth_enabled or (im.ndim == 3 and im.shape[2] == self.channels):
+            return im, hw0, hw
+
+        depth_path = Path(self.depth_files[i]) if self.depth_files else None
+        if depth_path is None:
+            raise FileNotFoundError("Depth file list is empty; cannot fuse depth channel.")
+
+        depth = imread(str(depth_path), flags=cv2.IMREAD_UNCHANGED)
+        if depth is None:
+            raise FileNotFoundError(f"Depth image not found: {depth_path}")
+        if depth.ndim == 3:
+            if depth.shape[2] == 1:
+                depth = depth[..., 0]
+            else:
+                depth = cv2.cvtColor(depth, cv2.COLOR_BGR2GRAY)
+        depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+        depth = depth.astype(np.float32, copy=False)
+        max_val = float(depth.max())
+        if max_val > 0 and max_val != 255.0:
+            depth = depth / max_val * 255.0
+        if depth.shape != im.shape[:2]:
+            depth = cv2.resize(depth, (im.shape[1], im.shape[0]), interpolation=cv2.INTER_NEAREST)
+        depth = depth.astype(im.dtype, copy=False)
+        depth = depth[..., None]
+
+        fused = np.concatenate((im, depth), axis=2)
+        if self.augment or self.cache == "ram":
+            self.ims[i] = fused
+        return fused, hw0, hw
 
     def get_labels(self) -> list[dict]:
         """

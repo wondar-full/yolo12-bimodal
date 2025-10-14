@@ -314,11 +314,18 @@ class BaseModel(torch.nn.Module):
         # mostly used to boost multi-channel training
         state_dict = self.state_dict()
         if first_conv not in updated_csd and first_conv in state_dict:
-            c1, c2, h, w = state_dict[first_conv].shape
-            cc1, cc2, ch, cw = csd[first_conv].shape
-            if ch == h and cw == w:
-                c1, c2 = min(c1, cc1), min(c2, cc2)
-                state_dict[first_conv][:c1, :c2] = csd[first_conv][:c1, :c2]
+            target_w = state_dict[first_conv]
+            source_w = csd[first_conv]
+            to, ti, th, tw = target_w.shape
+            so, si, sh, sw = source_w.shape
+            if sh == th and sw == tw:
+                copy_o = min(to, so)
+                copy_i = min(ti, si)
+                target_w[:copy_o, :copy_i] = source_w[:copy_o, :copy_i]
+                if ti > si:
+                    extra = ti - si
+                    filler = source_w[:copy_o, :si].mean(dim=1, keepdim=True).repeat(1, extra, 1, 1)
+                    target_w[:copy_o, si : si + extra] = filler
                 len_updated_csd += 1
         if verbose:
             LOGGER.info(f"Transferred {len_updated_csd}/{len(self.model.state_dict())} items from pretrained weights")
