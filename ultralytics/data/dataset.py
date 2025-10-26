@@ -316,6 +316,492 @@ class YOLODataset(BaseDataset):
         return new_batch
 
 
+class YOLORGBDDataset(YOLODataset):
+    """
+    Dataset class for loading RGB-D (RGB + Depth) object detection labels in YOLO format.
+    
+    This class extends YOLODataset to support dual-modal input by automatically loading
+    paired depth images alongside RGB images. Depth images are preprocessed, normalized,
+    and concatenated with RGB channels to form 4-channel tensors [R, G, B, D].
+    
+    Key Features:
+        - Automatic RGB-Depth pairing based on data.yaml configuration
+        - Robust depth preprocessing (median filter → gaussian smooth → confidence weighting)
+        - Graceful fallback to RGB-only mode if depth missing
+        - Support for different depth formats (16-bit PNG, 8-bit JPG, TIFF)
+        
+    Data.yaml Format:
+        ```yaml
+        path: /path/to/dataset
+        train: images/train
+        val: images/val
+        train_depth: depths/train  # Add this for depth support
+        val_depth: depths/val      # Add this for depth support
+        ```
+    
+    Attributes:
+        depth_files (list[str] | None): List of depth image paths paired with im_files.
+        _depth_enabled (bool): Whether depth modality is active.
+        _depth_split (str | None): Current data split ('train'/'val'/'test').
+        _depth_pairs (list[tuple[Path, Path]]): RGB root to Depth root mappings.
+        
+    Methods:
+        load_image: Override to load and fuse RGB + Depth channels.
+        _initialize_depth_paths: Build RGB-to-Depth path mapping.
+        _process_depth_channel: Preprocess depth map (denoise, normalize, weight).
+        
+    Examples:
+        >>> # Basic usage
+        >>> data_yaml = {"train": "images/train", "train_depth": "depths/train"}
+        >>> dataset = YOLORGBDDataset(img_path="train", data=data_yaml)
+        >>> img, _, _ = dataset.load_image(0)
+        >>> print(img.shape)  # (H, W, 4) - RGB+D
+        
+        >>> # Batch loading
+        >>> from torch.utils.data import DataLoader
+        >>> loader = DataLoader(dataset, batch_size=16, collate_fn=YOLODataset.collate_fn)
+        >>> batch = next(iter(loader))
+        >>> print(batch['img'].shape)  # [B, 4, H, W]
+        
+    📚 八股知识点: RGB-D数据加载
+    Q: 为什么要单独加载深度图而不是预先拼接？
+    A: (1) 灵活性: 可以动态调整深度预处理策略
+       (2) 存储效率: 深度通常是16-bit，预拼接会浪费空间
+       (3) 数据增强: RGB和Depth需要同步增强（旋转、裁剪）
+       (4) 调试方便: 可以单独可视化RGB和Depth
+    """
+
+    def __init__(self, *args, data: dict | None = None, task: str = "detect", **kwargs):
+        """
+        Initialize RGB-D dataset with automatic depth pairing.
+        
+        Args:
+            data (dict, optional): Dataset configuration with optional depth paths.
+            task (str): Task type ('detect', 'segment', 'pose', 'obb').
+            *args: Positional arguments for parent YOLODataset.
+            **kwargs: Keyword arguments for parent YOLODataset.
+            
+        Note:
+            If data.yaml contains 'train_depth' or 'val_depth', depth modality
+            will be enabled automatically. Otherwise, operates as RGB-only.
+        """
+        # RGB-D specific attributes
+        self.depth_files: list[str] | None = None
+        self._depth_enabled: bool = False
+        self._depth_split: str | None = None
+        self._depth_pairs: list[tuple[Path, Path]] = []
+        self._input_img_paths: list[str | Path] = []
+        
+        # Store original img_path before super().__init__
+        if args:
+            self._input_img_paths = self._ensure_list(args[0])
+        elif 'img_path' in kwargs:
+            self._input_img_paths = self._ensure_list(kwargs['img_path'])
+        
+        # Initialize parent YOLODataset (loads RGB images)
+        super().__init__(*args, data=data, task=task, **kwargs)
+        
+        # Build depth pairing after RGB images are loaded
+        self._initialize_depth_paths()
+
+    @staticmethod
+    def _ensure_list(x: Any) -> list:
+        """Convert input to list if not already."""
+        if x is None:
+            return []
+        return x if isinstance(x, (list, tuple)) else [x]
+
+    def _has_depth_config(self) -> bool:
+        """Check if data.yaml specifies depth paths."""
+        if not self.data:
+            return False
+        return any(self.data.get(f"{split}_depth") for split in ("train", "val", "test"))
+
+    def _initialize_depth_paths(self) -> None:
+        """
+        Build lookup table mapping RGB image paths to paired depth images.
+        
+        This method:
+        1. Infers current data split (train/val/test)
+        2. Resolves depth root directories from data.yaml
+        3. Matches each RGB image to its corresponding depth image
+        4. Validates all pairs exist (raises error if missing)
+        
+        Raises:
+            FileNotFoundError: If depth images are missing for some RGB samples.
+            
+        📚 八股知识点: 文件路径匹配
+        Q: 为什么需要directory pair映射？
+        A: (1) 支持不同的目录结构(depths/和images/可能不在同一父目录)
+           (2) 支持多个数据源拼接
+           (3) 相对路径转绝对路径的鲁棒处理
+           (4) 自动扩展名匹配(.png, .jpg, .tiff等)
+        """
+        if not self._has_depth_config() or not self.im_files:
+            return
+
+        # Infer which split this dataset represents
+        split = self._infer_depth_split()
+        if split is None:
+            return
+
+        # Get depth directory specification
+        depth_entry = self.data.get(f"{split}_depth")
+        if not depth_entry:
+            return
+
+        # Collect RGB and Depth root directories
+        rgb_roots = self._collect_existing_dirs(self._input_img_paths)
+        depth_roots = self._resolve_modal_roots(depth_entry)
+        
+        if not rgb_roots:
+            LOGGER.warning(f"{self.prefix}Unable to locate RGB root directories for depth alignment.")
+            return
+        if not depth_roots:
+            LOGGER.warning(f"{self.prefix}Unable to locate depth root directories defined in data.yaml.")
+            return
+        
+        # Broadcast single depth root to multiple RGB roots if needed
+        if len(depth_roots) == 1 and len(rgb_roots) > 1:
+            depth_roots = depth_roots * len(rgb_roots)
+        
+        if len(rgb_roots) != len(depth_roots):
+            LOGGER.warning(
+                f"{self.prefix}Mismatched RGB ({len(rgb_roots)}) and depth ({len(depth_roots)}) roots; depth disabled."
+            )
+            return
+
+        # Build RGB→Depth directory pairs
+        self._depth_pairs = list(zip(rgb_roots, depth_roots))
+        
+        # Match each RGB image to its depth image
+        depth_files: list[str] = []
+        missing: list[str] = []
+        
+        for im_path_str in self.im_files:
+            depth_path = self._match_depth_path(Path(im_path_str))
+            if depth_path is None or not depth_path.exists():
+                missing.append(im_path_str)
+            else:
+                depth_files.append(str(depth_path))
+
+        # Validate all pairs exist
+        if missing:
+            example = missing[0]
+            raise FileNotFoundError(
+                f"Depth image not found for {len(missing)} samples. Example missing pair: '{example}'.\n"
+                "Ensure depth files mirror the RGB directory structure and filenames.\n"
+                "Expected format: images/train/img001.jpg → depths/train/img001.png"
+            )
+
+        # Enable depth modality
+        if depth_files:
+            self.depth_files = depth_files
+            self._depth_enabled = True
+            self._depth_split = split
+            LOGGER.info(
+                f"{self.prefix}Depth modality enabled on split '{split}' with {len(self.depth_files)} paired samples."
+            )
+
+    def _infer_depth_split(self) -> str | None:
+        """
+        Infer which dataset split (train/val/test) this instance corresponds to.
+        
+        Returns:
+            str | None: 'train', 'val', 'test', or None if cannot infer.
+            
+        Note:
+            This compares the input img_path with data.yaml's train/val/test entries.
+        """
+        if not self.data:
+            return None
+
+        # Collect all resolved input paths
+        resolved_inputs = set()
+        for path in self._input_img_paths:
+            if not path:
+                continue
+            try:
+                resolved_inputs.add(Path(path).resolve())
+            except Exception:
+                continue
+
+        # Match against data.yaml splits
+        for split in ("train", "val", "test"):
+            for candidate in self._ensure_list(self.data.get(split)):
+                if not candidate:
+                    continue
+                try:
+                    if Path(candidate).resolve() in resolved_inputs:
+                        return split
+                except Exception:
+                    continue
+        return None
+
+    def _resolve_modal_roots(self, entries: Any) -> list[Path]:
+        """
+        Resolve modal-specific root paths relative to dataset root when necessary.
+        
+        Args:
+            entries: Single path or list of paths (str/Path/None).
+            
+        Returns:
+            list[Path]: List of resolved, existing directory paths.
+            
+        Example:
+            data.yaml: path: /data/visdrone, train_depth: depths/train
+            → Resolves to /data/visdrone/depths/train
+        """
+        roots: list[Path] = []
+        base_path = None
+        
+        # Get dataset root path
+        if self.data and self.data.get("path"):
+            try:
+                base_path = Path(self.data["path"]).resolve()
+            except Exception:
+                base_path = None
+
+        # Resolve each entry
+        for item in self._ensure_list(entries):
+            candidate: Path | None = None
+            try:
+                path_obj = Path(item)
+            except Exception:
+                continue
+
+            # Handle absolute vs relative paths
+            if path_obj.is_absolute():
+                candidate = path_obj
+            elif base_path is not None:
+                candidate = base_path / path_obj
+            else:
+                candidate = path_obj
+
+            # Validate existence
+            try:
+                resolved = candidate.resolve()
+            except Exception:
+                continue
+
+            if resolved.exists():
+                roots.append(resolved)
+                
+        return roots
+
+    @staticmethod
+    def _collect_existing_dirs(paths: Any) -> list[Path]:
+        """
+        Return list of existing directory paths from iterable of path-like inputs.
+        
+        Args:
+            paths: Iterable of path strings/objects or None values.
+            
+        Returns:
+            list[Path]: List of existing, resolved directory paths.
+        """
+        collected: list[Path] = []
+        for path in YOLORGBDDataset._ensure_list(paths):
+            if not path:
+                continue
+            try:
+                p = Path(path).resolve()
+            except Exception:
+                continue
+            if p.exists():
+                collected.append(p)
+        return collected
+
+    def _match_depth_path(self, image_path: Path) -> Path | None:
+        """
+        Locate corresponding depth image path given an RGB image path.
+        
+        Args:
+            image_path: Path object of RGB image.
+            
+        Returns:
+            Path | None: Matched depth image path, or None if not found.
+            
+        Matching Strategy:
+        1. Compute relative path from RGB root
+        2. Apply same relative path to Depth root
+        3. Try exact match first
+        4. Try glob match with different extensions (.png, .jpg, .tiff)
+        
+        Example:
+            RGB: /data/images/train/folder/img001.jpg
+            RGB root: /data/images/train
+            Depth root: /data/depths/train
+            → Try: /data/depths/train/folder/img001.png (exact)
+            → Try: /data/depths/train/folder/img001.* (glob)
+        """
+        for rgb_root, depth_root in self._depth_pairs:
+            try:
+                # Get relative path from RGB root
+                rel = image_path.relative_to(rgb_root)
+            except ValueError:
+                continue
+
+            # Build candidate depth path
+            candidate = depth_root / rel
+            
+            # Try exact match
+            if candidate.exists():
+                return candidate
+            
+            # Try glob match (different extensions)
+            parent = candidate.parent
+            if parent.exists():
+                matches = list(parent.glob(candidate.stem + ".*"))
+                for match in matches:
+                    if match.exists():
+                        return match
+                        
+        return None
+
+    def load_image(self, i: int, rect_mode: bool = True) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
+        """
+        Load RGB image and append paired depth channel when available.
+        
+        Args:
+            i (int): Image index.
+            rect_mode (bool): Whether to use rectangular inference mode.
+            
+        Returns:
+            tuple: (image, original_hw, resized_hw)
+                - image: [H, W, 4] numpy array (RGB+D) or [H, W, 3] (RGB-only)
+                - original_hw: (height, width) before any transforms
+                - resized_hw: (height, width) after letterbox/resize
+                
+        Processing Pipeline:
+        1. Load RGB image via parent class (handles caching, letterbox)
+        2. If depth enabled, load paired depth image
+        3. Preprocess depth (denoise → normalize → weight by confidence)
+        4. Resize depth to match RGB dimensions
+        5. Concatenate [RGB, Depth] along channel axis
+        6. Update cache if enabled
+        
+        📚 八股知识点: 深度图预处理
+        Q: 为什么深度图需要median+gaussian双重滤波？
+        A: (1) Median filter: 去除椒盐噪声(传感器噪点)
+           (2) Gaussian filter: 平滑边缘，填补小范围缺失
+           (3) 置信度加权: 抑制不可信区域(反光、透明物体)
+           (4) 百分位拉伸: 自适应到不同场景的深度范围
+        """
+        # Load RGB image from parent class
+        im, hw0, hw = super().load_image(i, rect_mode)
+        
+        # Return early if depth not enabled or already fused
+        if not self._depth_enabled or (im.ndim == 3 and im.shape[2] == self.channels):
+            return im, hw0, hw
+
+        # Get depth file path
+        depth_path = Path(self.depth_files[i]) if self.depth_files else None
+        if depth_path is None:
+            raise FileNotFoundError("Depth file list is empty; cannot fuse depth channel.")
+
+        # Load depth image (supports 16-bit PNG, 8-bit JPG, TIFF)
+        from ultralytics.data.loaders import imread
+        depth = imread(str(depth_path), flags=cv2.IMREAD_UNCHANGED)
+        if depth is None:
+            raise FileNotFoundError(f"Depth image not found: {depth_path}")
+        
+        # Preprocess depth to match RGB dimensions
+        depth = self._process_depth_channel(depth, im.shape[:2])
+
+        # Concatenate RGB + Depth → [H, W, 4]
+        fused = np.concatenate((im, depth), axis=2)
+        
+        # Update cache if enabled
+        if self.augment or self.cache == "ram":
+            self.ims[i] = fused
+            
+        return fused, hw0, hw
+
+    @staticmethod
+    def _process_depth_channel(depth: np.ndarray, target_hw: tuple[int, int]) -> np.ndarray:
+        """
+        Clean, normalize, and confidence-weight a depth map before fusion.
+        
+        Args:
+            depth: Raw depth array (H, W) or (H, W, 1) or (H, W, 3).
+            target_hw: Target (height, width) to match RGB dimensions.
+            
+        Returns:
+            np.ndarray: Processed depth [H, W, 1] in uint8 [0, 255].
+            
+        Processing Steps:
+        1. Convert multi-channel to single channel (BGR→Gray if needed)
+        2. Handle NaN/Inf (replace with 0)
+        3. Resize to match RGB if needed (INTER_NEAREST preserves depth values)
+        4. Median filter (5x5) → remove salt-and-pepper noise
+        5. Gaussian filter (5x5) → smooth and fill small gaps
+        6. Compute confidence map based on blur difference
+        7. Percentile normalization (2%-98%) → adaptive range
+        8. Confidence weighting → suppress unreliable regions
+        9. Convert to uint8 [0, 255]
+        
+        📚 八股知识点: 为什么用INTER_NEAREST而非INTER_LINEAR？
+        Q: 深度图resize为什么不用双线性插值？
+        A: (1) 深度是离散测量值,不是连续信号
+           (2) 线性插值会在边界产生错误的中间值
+           (3) NEAREST保持原始测量,避免引入伪影
+           (4) 特别是下采样时,NEAREST更鲁棒
+           
+        Example:
+            深度边界: [1.0m, 1.0m, 5.0m, 5.0m]
+            INTER_LINEAR: [1.0, 1.0, 3.0, 5.0, 5.0] ← 3.0m是错误的!
+            INTER_NEAREST: [1.0, 1.0, 5.0, 5.0, 5.0] ← 正确!
+        """
+        # Step 1: Convert to single channel if needed
+        if depth.ndim == 3:
+            if depth.shape[2] == 1:
+                depth = depth[..., 0]  # Remove singleton dimension
+            else:
+                # Assume BGR depth visualization, convert to Gray
+                depth = cv2.cvtColor(depth, cv2.COLOR_BGR2GRAY)
+
+        # Step 2: Handle NaN/Inf (common in depth sensors)
+        depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+        depth = depth.astype(np.float32, copy=False)
+
+        # Step 3: Resize to target dimensions if needed
+        if depth.shape != target_hw:
+            depth = cv2.resize(depth, (target_hw[1], target_hw[0]), interpolation=cv2.INTER_NEAREST)
+
+        # Step 4-9: Denoise, normalize, weight
+        valid_mask = depth > 0  # Identify valid depth measurements
+        
+        if valid_mask.any():
+            # Step 4: Median filter (remove salt-and-pepper noise)
+            # 📌 改进: 减小核尺寸3x3→保留小目标边缘 (vs ultralytics12的5x5)
+            depth_blur = cv2.medianBlur(depth, 3)
+            
+            # Step 5: Gaussian filter (smooth and fill small gaps)
+            depth_smooth = cv2.GaussianBlur(depth_blur, (5, 5), 0)
+            
+            # Step 6: Compute confidence (low diff = high confidence)
+            diff = np.abs(depth_smooth - depth_blur)
+            sigma = float(diff[valid_mask].std()) or 1.0
+            confidence = np.clip(1.0 - diff / (3.0 * sigma + 1e-6), 0.0, 1.0)
+            confidence *= valid_mask.astype(np.float32)
+
+            # Step 7: Percentile normalization (adaptive to scene depth range)
+            low, high = np.percentile(depth_blur[valid_mask], (2.0, 98.0))
+            scale = max(high - low, 1e-6)
+            depth_norm = np.clip((depth_blur - low) / scale, 0.0, 1.0)
+            
+            # Step 8: Confidence weighting (suppress unreliable regions)
+            depth_weighted = depth_norm * confidence
+        else:
+            # No valid depth (all zeros/NaN)
+            depth_weighted = np.zeros_like(depth, dtype=np.float32)
+
+        # Step 9: Convert to uint8 for network input
+        depth_uint8 = (depth_weighted * 255.0).astype(np.uint8)
+        return depth_uint8[..., None]  # Add channel dimension [H, W, 1]
+
+
 class YOLOMultiModalDataset(YOLODataset):
     """
     Dataset class for loading object detection and/or segmentation labels in YOLO format with multi-modal support.

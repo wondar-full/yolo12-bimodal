@@ -67,6 +67,7 @@ from .conv import (
     Conv,
     Conv2,
     ConvTranspose,
+    DepthGatedFusion,
     DWConv,
     DWConvTranspose2d,
     Focus,
@@ -74,8 +75,10 @@ from .conv import (
     Index,
     LightConv,
     RepConv,
+    RGBDStem,
     SpatialAttention,
 )
+from .geometry import GeometryPriorGenerator
 from .head import (
     OBB,
     Classify,
@@ -111,11 +114,14 @@ __all__ = (
     "C3TR",
     "CBAM",
     "CIB",
+    "DepthGatedFusion",
     "DFL",
     "ELAN1",
+    "GeometryPriorGenerator",
     "MLP",
     "OBB",
     "PSA",
+    "RGBDStem",
     "SPP",
     "SPPELAN",
     "SPPF",
