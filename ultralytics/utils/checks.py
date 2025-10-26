@@ -815,12 +815,18 @@ def check_amp(model):
             f"{prefix}checks skipped. "
             f"Unable to load YOLO11n for AMP checks due to possible Ultralytics package modifications. {warning_msg}"
         )
-    except AssertionError:
-        LOGGER.error(
-            f"{prefix}checks failed. Anomalies were detected with AMP on your system that may lead to "
-            f"NaN losses or zero-mAP results, so AMP will be disabled during training."
-        )
-        return False
+    except (AssertionError, RuntimeError) as e:
+        # Handle both AMP anomalies and weight loading errors (e.g., corrupted downloads)
+        if "PytorchStreamReader" in str(e) or "zip archive" in str(e):
+            LOGGER.warning(
+                f"{prefix}checks skipped. Unable to load YOLO11n weights (possibly corrupted download). {warning_msg}"
+            )
+        else:
+            LOGGER.error(
+                f"{prefix}checks failed. Anomalies were detected with AMP on your system that may lead to "
+                f"NaN losses or zero-mAP results, so AMP will be disabled during training."
+            )
+            return False
     return True
 
 

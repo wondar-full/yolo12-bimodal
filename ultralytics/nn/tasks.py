@@ -43,10 +43,12 @@ from ultralytics.nn.modules import (
     Conv,
     Conv2,
     ConvTranspose,
+    DepthGatedFusion,  # RGB-D fusion module
     Detect,
     DWConv,
     DWConvTranspose2d,
     Focus,
+    GeometryPriorGenerator,  # Depth geometry prior extraction
     GhostBottleneck,
     GhostConv,
     HGBlock,
@@ -60,6 +62,8 @@ from ultralytics.nn.modules import (
     RepNCSPELAN4,
     RepVGGDW,
     ResNetLayer,
+    RGBDMidFusion,  # RGB-D mid-level fusion
+    RGBDStem,  # RGB-D dual-branch stem
     RTDETRDecoder,
     SCDown,
     Segment,
@@ -172,12 +176,49 @@ class BaseModel(torch.nn.Module):
         y, dt, embeddings = [], [], []  # outputs
         embed = frozenset(embed) if embed is not None else {-1}
         max_idx = max(embed)
+        
+        # 📌 RGB-D specific: Track depth skip connection from Layer 0
+        depth_skip = None  # Will be extracted from RGBDStem output
+        
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
-            x = m(x)  # run
+            
+            # 📌 RGB-D specific: Handle RGBDMidFusion dual-input
+            if hasattr(m, '__class__') and m.__class__.__name__ == 'RGBDMidFusion':
+                # RGBDMidFusion requires two inputs: (rgb_feat, depth_skip)
+                # f should be a list of two indices: [rgb_layer_idx, depth_layer_idx]
+                if isinstance(m.f, list) and len(m.f) == 2:
+                    rgb_feat_idx = m.f[0]
+                    depth_layer_idx = m.f[1]
+                    
+                    # Get RGB features from specified layer
+                    rgb_feat = y[rgb_feat_idx]
+                    
+                    # Extract depth skip connection from depth layer
+                    # Assumption: Layer 0 (RGBDStem) outputs [fused 64ch + depth 64ch] = 128ch
+                    # depth_skip is the last 64 channels
+                    depth_layer_output = y[depth_layer_idx]
+                    
+                    if depth_layer_idx == 0:  # RGBDStem is at Layer 0
+                        # Split: first half is fused, second half is depth_skip
+                        fused_channels = depth_layer_output.shape[1] // 2
+                        depth_skip = depth_layer_output[:, fused_channels:, :, :]  # [B, 64, H, W]
+                    else:
+                        # For other layers, use full output as depth_skip
+                        depth_skip = depth_layer_output
+                    
+                    # Forward with two inputs
+                    x = m(rgb_feat, depth_skip)
+                else:
+                    # Fallback: single input (should not happen for RGBDMidFusion)
+                    x = m(x)
+            else:
+                # Standard forward pass for other modules
+                x = m(x)  # run
+            
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
@@ -1700,6 +1741,33 @@ def parse_model(d, ch, verbose=True):
             c2 = args[0]
             c1 = ch[f]
             args = [*args[1:]]
+        elif m is RGBDStem:
+            # RGB-D dual-branch stem: args = [c1, c2, k, s, depth_channels, c_mid, fusion, reduction, act]
+            # c1: input channels (e.g., 4 for RGB+D)
+            # c2: output channels (e.g., 128 for dual-branch concat)
+            c1, c2 = ch[f], args[1]  # args[0] is c1, args[1] is c2
+            args = [c1, c2, *args[2:]]  # prepend c1 for explicit channel specification
+        elif m is RGBDMidFusion:
+            # RGB-D mid-level fusion: args = [rgb_channels, depth_channels, reduction, fusion_weight]
+            # from: [rgb_feat_layer, depth_skip_layer] (e.g., [4, 0])
+            # rgb_channels: inferred from rgb_feat_layer
+            # depth_channels: provided in args[1]
+            if isinstance(f, list) and len(f) == 2:
+                # f[0]: RGB feature layer index
+                # f[1]: Depth skip connection layer index
+                rgb_channels = ch[f[0]]  # RGB feature channels
+                depth_channels = args[1] if len(args) > 1 else ch[f[1]]  # Depth channels
+                c1 = rgb_channels  # input is RGB features
+                c2 = rgb_channels  # output preserves RGB channel count
+                args = [rgb_channels, depth_channels, *args[2:]]  # [rgb_ch, depth_ch, reduction, fusion_weight]
+            else:
+                raise ValueError(
+                    f"RGBDMidFusion requires 'from' to be a list of 2 indices [rgb_layer, depth_layer], "
+                    f"but got {f}"
+                )
+        elif m in frozenset({DepthGatedFusion, GeometryPriorGenerator}):
+            # RGB-D fusion modules: preserve args as-is, infer channels from context
+            c2 = ch[f]
         else:
             c2 = ch[f]
 

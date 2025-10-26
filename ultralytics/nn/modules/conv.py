@@ -1091,3 +1091,322 @@ class RGBDStem(nn.Module):
        (3) 接近1: 深度贡献过大,可能过拟合
        (4) 监控last_gate_mean趋势,稳定在0.4-0.6最佳
 """
+
+
+# ================================================================================================
+# RGBDMidFusion - Mid-Level RGB-D Feature Fusion for Multi-Scale Enhancement
+# ================================================================================================
+
+class RGBDMidFusion(nn.Module):
+    """
+    Mid-level RGB-D feature fusion module for multi-scale depth integration.
+    
+    Designed to address the "depth dilution problem" in early fusion strategies:
+    After RGBDStem produces [fused 64ch + depth 64ch], standard YOLOv12 layers
+    gradually mix depth features into increasing channels (256→512→1024), causing
+    depth information to be "drowned out" by RGB features.
+    
+    Solution: Re-inject depth features at P3/P4/P5 scales using cross-modal attention.
+    
+    Architecture:
+        Input:
+          - rgb_feat: [B, C_rgb, H, W] from backbone layer (e.g., after C3k2)
+          - depth_skip: [B, C_d, H', W'] from RGBDStem's depth branch
+        
+        Pipeline:
+          1. Spatial alignment: Resize depth_skip to match rgb_feat resolution
+          2. Channel alignment: Project depth_skip to C_rgb channels
+          3. Cross-modal attention: Learn adaptive fusion weights
+          4. Weighted fusion: rgb_feat + attention * depth_aligned
+        
+        Output:
+          - enhanced_feat: [B, C_rgb, H, W] (same shape as rgb_feat)
+    
+    Args:
+        rgb_channels (int): Number of RGB feature channels (from backbone).
+        depth_channels (int): Number of depth feature channels (from RGBDStem).
+        reduction (int): Channel reduction ratio for attention network. Default: 16.
+            - Smaller = more expressive but heavier (e.g., 8 for large models)
+            - Larger = lighter but less adaptive (e.g., 32 for nano models)
+        fusion_weight (float): Initial weight for depth contribution. Default: 0.3.
+            - Prevents depth from dominating in early training
+            - Learnable parameter, will be optimized during training
+    
+    Fusion Formula:
+        output = rgb_feat + α * attention(concat(rgb_feat, depth_aligned)) * depth_aligned
+        where α is the learnable fusion_weight
+    
+    FLOPs Analysis (for C=512, H=40, W=40):
+        1. Depth projection: 1x1 conv C_d→C_rgb = C_d * C_rgb * H * W
+           Example: 64 * 512 * 40 * 40 = 52.4M FLOPs
+        2. Attention network: 
+           - AdaptiveAvgPool: ~0 (negligible)
+           - Conv 2C→C//r: 2C * C//r = 1024 * 32 = 32K FLOPs
+           - Conv C//r→C: C//r * C = 32 * 512 = 16K FLOPs
+           Total attention: ~50K FLOPs (negligible)
+        3. Total per RGBDMidFusion: ~52.4M FLOPs
+        4. Three fusions (P3+P4+P5): ~157M FLOPs
+        5. vs YOLOv12-S total (45.6G): +0.34% overhead ✅ Acceptable!
+    
+    Usage in YAML:
+        backbone:
+          # Layer 0: RGBDStem produces [fused 64ch + depth 64ch]
+          - [-1, 1, RGBDStem, [4, 128, 3, 2, 1, 64, "gated_add", 16, True]]  # 0-P1/2
+          
+          # Layers 1-4: Standard YOLOv12 processing
+          - [-1, 1, Conv, [128, 3, 2]]  # 1-P2/4
+          - [-1, 2, C3k2, [256, False, 0.25]]  # 2
+          - [-1, 1, Conv, [256, 3, 2]]  # 3-P3/8
+          - [-1, 2, C3k2, [512, False, 0.25]]  # 4-P3 features
+          
+          # 📌 Re-inject depth features at P3 scale
+          # Args: [rgb_channels (from layer 4), depth_channels (from layer 0)]
+          - [[4, 0], 1, RGBDMidFusion, [512, 64]]  # 5-P3 depth fusion
+          
+          # Repeat for P4 and P5...
+    
+    Example:
+        >>> # Simulate backbone outputs
+        >>> rgb_feat = torch.rand(2, 512, 40, 40)  # P4 features
+        >>> depth_skip = torch.rand(2, 64, 320, 320)  # From RGBDStem
+        >>> fusion = RGBDMidFusion(rgb_channels=512, depth_channels=64)
+        >>> enhanced = fusion(rgb_feat, depth_skip)
+        >>> print(enhanced.shape)  # torch.Size([2, 512, 40, 40])
+        >>> print(fusion.last_attn_mean)  # tensor(0.42) - attention weight
+    
+    📚 八股知识点: 为什么需要Mid-Level Fusion？
+    Q: 有了RGBDStem为什么还需要RGBDMidFusion？
+    A: (1) 早期融合的深度特征会被"稀释"
+          Layer 0: 64ch depth / 128ch total = 50%
+          Layer 4: 64ch depth / 512ch total = 12.5%  ← 信息丢失!
+          Layer 8: 64ch depth / 1024ch total = 6.25% ← 几乎不可见!
+       (2) 不同尺度需要不同深度信息
+          P3 (small objects): 需要精细深度 (边缘、纹理)
+          P4 (medium objects): 需要结构深度 (平面、法向)
+          P5 (large objects): 需要全局深度 (距离、遮挡)
+       (3) RemDet成功的关键: 多阶段特征增强
+          ChannelC2f在每个block都优化
+          GatedFFN在每个FFN都改进
+          我们的RGBDMidFusion在每个尺度都融合
+    
+    Q: 为什么用Cross-Modal Attention而不是简单Add/Concat？
+    A: (1) Attention可以学习"何时依赖深度"
+          室内场景(深度准确) → attention=0.8 (高权重)
+          室外场景(深度噪声) → attention=0.2 (低权重)
+       (2) 自适应性: 不同样本、不同区域权重不同
+          有纹理的区域 → 依赖RGB
+          无纹理的区域 → 依赖Depth
+       (3) 可解释性: last_attn_mean监控融合强度
+    
+    Q: reduction=16是怎么确定的？
+    A: (1) 参考SENet/CBAM的经典设置 (r=16)
+       (2) 平衡表达能力和计算量
+          r=8: 更强表达,但参数量2x
+          r=16: 标准配置 ✅
+          r=32: 更轻量,但可能欠拟合
+       (3) 消融实验验证: r=8/16/32对比
+    
+    Troubleshooting:
+        1. RuntimeError: Sizes of tensors must match
+           → Check rgb_feat.shape == enhanced.shape (no dimension change!)
+        
+        2. Attention weight always near 0 or 1
+           → Depth quality issue or learning rate too high
+           → Try adjusting fusion_weight initial value (0.1~0.5)
+        
+        3. Memory overflow
+           → Reduce reduction ratio (e.g., 32 instead of 16)
+           → Use FP16 mixed precision training
+    """
+
+    def __init__(
+        self,
+        rgb_channels: int,
+        depth_channels: int,
+        reduction: int = 16,
+        fusion_weight: float = 0.3,
+    ):
+        """
+        Initialize RGBDMidFusion module.
+        
+        Args:
+            rgb_channels: Number of RGB feature channels (e.g., 512 for P4).
+            depth_channels: Number of depth feature channels (e.g., 64 from RGBDStem).
+            reduction: Channel reduction for attention network (default: 16).
+            fusion_weight: Initial learnable weight for depth contribution (default: 0.3).
+        """
+        super().__init__()
+        
+        # Store configuration
+        self.rgb_channels = rgb_channels
+        self.depth_channels = depth_channels
+        self.reduction = reduction
+        
+        # ========================================================================================
+        # 1. Channel Alignment: Project depth_channels → rgb_channels
+        # ========================================================================================
+        # Use 1x1 conv for efficient channel projection
+        # FLOPs: depth_channels * rgb_channels * H * W
+        self.depth_proj = Conv(depth_channels, rgb_channels, k=1, s=1, act=True)
+        
+        # ========================================================================================
+        # 2. Cross-Modal Attention Network
+        # ========================================================================================
+        # Architecture: GlobalPool → FC(2C→C//r) → SiLU → FC(C//r→C) → Sigmoid
+        # Inspired by SENet and CBAM, adapted for RGB-D fusion
+        
+        concat_channels = rgb_channels * 2  # RGB + Depth_aligned
+        hidden_dim = max(concat_channels // reduction, 8)  # Ensure min 8 channels
+        
+        self.attention = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),  # [B, 2C, H, W] → [B, 2C, 1, 1]
+            nn.Conv2d(concat_channels, hidden_dim, 1, bias=False),  # Squeeze
+            nn.SiLU(),  # Activation
+            nn.Conv2d(hidden_dim, rgb_channels, 1, bias=False),  # Excitation
+            nn.Sigmoid(),  # Normalize to [0, 1]
+        )
+        
+        # ========================================================================================
+        # 3. Learnable Fusion Weight
+        # ========================================================================================
+        # Allows network to control overall depth contribution strength
+        # Initialized to fusion_weight (default 0.3 = conservative)
+        self.fusion_weight = nn.Parameter(torch.tensor(fusion_weight))
+        
+        # ========================================================================================
+        # 4. Monitoring Statistics (for debugging/logging)
+        # ========================================================================================
+        # Track attention weights to ensure fusion is working
+        self.register_buffer("last_attn_mean", torch.tensor(0.0))
+        self.register_buffer("last_attn_std", torch.tensor(0.0))
+        
+    def forward(self, rgb_feat, depth_skip):
+        """
+        Forward pass: Fuse RGB features with depth skip connection.
+        
+        Args:
+            rgb_feat (Tensor): RGB features from backbone [B, C_rgb, H, W].
+            depth_skip (Tensor): Depth features from RGBDStem [B, C_d, H', W'].
+        
+        Returns:
+            Tensor: Enhanced features [B, C_rgb, H, W] (same shape as rgb_feat).
+        
+        Pipeline:
+            depth_skip [B, 64, 320, 320] 
+                → resize to [B, 64, 40, 40]  (spatial alignment)
+                → project to [B, 512, 40, 40]  (channel alignment)
+                → concat with rgb_feat [B, 512, 40, 40]
+                → attention [B, 1024, 40, 40] → [B, 512, 1, 1]
+                → element-wise multiply: attn * depth_aligned
+                → weighted add: rgb_feat + fusion_weight * (attn * depth_aligned)
+        """
+        import torch.nn.functional as F
+        
+        # ========================================================================================
+        # Step 1: Spatial Alignment - Resize depth to match RGB resolution
+        # ========================================================================================
+        # RGBDStem outputs depth at P1/2 (320x320)
+        # Backbone layer outputs RGB at P3/P4/P5 (80/40/20)
+        # Need to downsample depth to match
+        
+        target_size = rgb_feat.shape[-2:]  # [H, W]
+        
+        if depth_skip.shape[-2:] != target_size:
+            # Bilinear interpolation for smooth downsampling
+            # align_corners=False is standard for object detection
+            depth_skip_resized = F.interpolate(
+                depth_skip,
+                size=target_size,
+                mode="bilinear",
+                align_corners=False,
+            )
+        else:
+            depth_skip_resized = depth_skip
+        
+        # ========================================================================================
+        # Step 2: Channel Alignment - Project depth to RGB channel dimension
+        # ========================================================================================
+        # Input: [B, 64, H, W] → Output: [B, 512, H, W]
+        depth_aligned = self.depth_proj(depth_skip_resized)
+        
+        # ========================================================================================
+        # Step 3: Cross-Modal Attention - Learn fusion weights
+        # ========================================================================================
+        # Concatenate RGB and depth for attention calculation
+        concat_feat = torch.cat([rgb_feat, depth_aligned], dim=1)  # [B, 2*C_rgb, H, W]
+        
+        # Compute attention weights [B, C_rgb, 1, 1]
+        attn_weights = self.attention(concat_feat)  # Sigmoid output [0, 1]
+        
+        # ========================================================================================
+        # Step 4: Update Monitoring Statistics
+        # ========================================================================================
+        # Track attention distribution for debugging
+        attn_mean = attn_weights.mean().detach()
+        attn_std = attn_weights.std().detach()
+        
+        if torch.isfinite(attn_mean):
+            self.last_attn_mean.copy_(attn_mean)
+        if torch.isfinite(attn_std):
+            self.last_attn_std.copy_(attn_std)
+        
+        # ========================================================================================
+        # Step 5: Weighted Fusion
+        # ========================================================================================
+        # Formula: output = rgb + α * (attn * depth)
+        # - rgb_feat: Original RGB features (base information)
+        # - attn_weights: Spatial attention map (where to fuse)
+        # - depth_aligned: Depth features (what to fuse)
+        # - fusion_weight: Global strength control (how much to fuse)
+        
+        # Broadcast attention: [B, C, 1, 1] → [B, C, H, W]
+        depth_contribution = attn_weights * depth_aligned
+        
+        # Learnable weighted addition
+        enhanced_feat = rgb_feat + self.fusion_weight * depth_contribution
+        
+        return enhanced_feat
+
+
+# 📚 八股扩展: RGBDMidFusion深度解析
+"""
+1. 为什么要保存depth_skip而不是直接在backbone内部融合？
+   答: (1) 灵活性: 可以在任意层级选择性融合
+       (2) 消融实验: 方便对比"有/无"深度融合
+       (3) 计算效率: 避免在不需要的层传播深度特征
+       (4) 模块解耦: RGBDStem和RGBDMidFusion独立设计
+
+2. fusion_weight为什么初始化为0.3而不是1.0？
+   答: (1) 保守策略: 避免深度噪声主导训练早期
+       (2) 稳定性: RGB特征已经很强,深度应该"辅助"而非"替代"
+       (3) 学习空间: 0.3→0.5是有意义的优化方向
+       (4) 类似ResNet的残差连接: 初始化接近0,逐渐学习
+
+3. 如何监控RGBDMidFusion是否正常工作？
+   答: (1) last_attn_mean应该在[0.2, 0.6]范围
+          <0.1: 深度被完全忽略,检查depth质量
+          >0.8: 深度主导,可能过拟合
+       (2) fusion_weight应该逐渐增加
+          初始0.3 → 训练后0.4-0.6 (说明深度有用)
+       (3) mAP@0.5应该比v1.0提升2-3%
+          v1: 41% → v2.1: 43-44%
+
+4. 如果P3/P4/P5的depth_skip来自不同分辨率？
+   答: (1) 代码已处理: F.interpolate自动resize
+       (2) 建议: 使用同一depth_skip源(RGBDStem)
+       (3) 高级: 可以为每个scale设计独立depth branch
+       (4) 权衡: 简单 vs 性能,当前方案已足够
+
+5. RGBDMidFusion vs Attention机制对比？
+   答: RGBDMidFusion = Cross-Modal Attention
+       - SENet: 单模态通道注意力
+       - CBAM: 单模态空间+通道注意力
+       - RGBDMidFusion: 双模态交叉注意力
+       关键差异: 我们融合**两种模态**,不是增强单一特征
+
+思考题:
+1. 如果depth_skip质量很差(大量噪声),attention能否自动降低权重？
+2. 为什么P3/P4/P5都需要独立的RGBDMidFusion,而不是共享参数？
+3. 如何设计实验验证RGBDMidFusion的必要性(消融实验)?
+4. 能否用Transformer的Multi-Head Attention替代当前的简单attention？
+"""

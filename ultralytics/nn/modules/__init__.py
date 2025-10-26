@@ -75,6 +75,7 @@ from .conv import (
     Index,
     LightConv,
     RepConv,
+    RGBDMidFusion,
     RGBDStem,
     SpatialAttention,
 )
@@ -121,6 +122,7 @@ __all__ = (
     "MLP",
     "OBB",
     "PSA",
+    "RGBDMidFusion",
     "RGBDStem",
     "SPP",
     "SPPELAN",
