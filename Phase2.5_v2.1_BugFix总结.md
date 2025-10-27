@@ -415,7 +415,27 @@ python val_visdrone.py --model runs/train/rgbd_v2.1_full/weights/best.pt
 
 ---
 
-## 后续行动
+## 🚀 后续行动
+
+### ⚠️ 额外 Bug 修复 (2025/10/27 18:30)
+
+**问题**: 服务器运行时报错 `AttributeError: 'Namespace' object has no attribute 'small_thresh'`
+
+**原因**: `parse_args()` 简化时误删了 `small_thresh` 和 `medium_thresh` 参数，但 `validate_visdrone()` 仍在使用
+
+**修复**: 在 `val_visdrone.py` Line ~167 添加:
+
+```python
+# VisDrone特定参数 (分尺度评估)
+parser.add_argument('--small-thresh', type=int, default=DEFAULT_CONFIG['small_thresh'],
+                    help=f"Small object area threshold (default: {DEFAULT_CONFIG['small_thresh']} = 32x32)")
+parser.add_argument('--medium-thresh', type=int, default=DEFAULT_CONFIG['medium_thresh'],
+                    help=f"Medium object area threshold (default: {DEFAULT_CONFIG['medium_thresh']} = 64x64)")
+```
+
+**状态**: ✅ 已修复，可以重新运行测试
+
+---
 
 ### ✅ 立即验证 (本地)
 

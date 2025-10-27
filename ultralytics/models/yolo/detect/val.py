@@ -215,16 +215,17 @@ class DetectionValidator(BaseValidator):
             cls = pbatch["cls"].cpu().numpy()
             no_pred = predn["cls"].shape[0] == 0
             
-            # 🆕 构建stats字典,包含target_areas(如果存在)
+            # 构建基础stats字典
+            process_batch_result = self._process_batch(predn, pbatch)  # 包含tp和可能的tp_small等
             stats_dict = {
-                **self._process_batch(predn, pbatch),
+                **process_batch_result,  # tp, tp_small, tp_medium, tp_large, etc.
                 "target_cls": cls,
                 "target_img": np.unique(cls),
                 "conf": np.zeros(0) if no_pred else predn["conf"].cpu().numpy(),
                 "pred_cls": np.zeros(0) if no_pred else predn["cls"].cpu().numpy(),
             }
             
-            # 🆕 如果pbatch有target_areas,添加到stats(for VisDrone size-wise metrics)
+            # 如果pbatch有target_areas,添加到stats(for VisDrone size-wise metrics)
             if "target_areas" in pbatch:
                 target_areas = pbatch["target_areas"]
                 # 确保转换为numpy数组
@@ -312,19 +313,113 @@ class DetectionValidator(BaseValidator):
 
     def _process_batch(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> dict[str, np.ndarray]:
         """
-        Return correct prediction matrix.
+        Return correct prediction matrix (with optional size-wise TP for VisDrone mode).
 
         Args:
             preds (dict[str, torch.Tensor]): Dictionary containing prediction data with 'bboxes' and 'cls' keys.
             batch (dict[str, Any]): Batch dictionary containing ground truth data with 'bboxes' and 'cls' keys.
 
         Returns:
-            (dict[str, np.ndarray]): Dictionary containing 'tp' key with correct prediction matrix of shape (N, 10) for 10 IoU levels.
+            (dict[str, np.ndarray]): Dictionary containing 'tp' key (and optional 'tp_small/medium/large' if visdrone_mode).
         """
+        # Empty prediction/GT case
         if batch["cls"].shape[0] == 0 or preds["cls"].shape[0] == 0:
-            return {"tp": np.zeros((preds["cls"].shape[0], self.niou), dtype=bool)}
+            result = {"tp": np.zeros((preds["cls"].shape[0], self.niou), dtype=bool)}
+            # VisDrone模式: 添加空的分尺度TP
+            if getattr(self.args, 'visdrone_mode', False):
+                empty_tp = np.zeros((0, self.niou), dtype=bool)
+                result.update({
+                    "tp_small": empty_tp, "tp_medium": empty_tp, "tp_large": empty_tp,
+                    "target_cls_small": np.array([], dtype=np.int32),
+                    "target_cls_medium": np.array([], dtype=np.int32),
+                    "target_cls_large": np.array([], dtype=np.int32),
+                    "conf_small": np.array([], dtype=np.float32),
+                    "conf_medium": np.array([], dtype=np.float32),
+                    "conf_large": np.array([], dtype=np.float32),
+                    "pred_cls_small": np.array([], dtype=np.int32),
+                    "pred_cls_medium": np.array([], dtype=np.int32),
+                    "pred_cls_large": np.array([], dtype=np.int32),
+                })
+            return result
+        
+        # 计算IoU和全局TP
         iou = box_iou(batch["bboxes"], preds["bboxes"])
-        return {"tp": self.match_predictions(preds["cls"], batch["cls"], iou).cpu().numpy()}
+        tp_all = self.match_predictions(preds["cls"], batch["cls"], iou).cpu().numpy()
+        result = {"tp": tp_all}
+        
+        # 🆕 VisDrone模式: 计算分尺度TP
+        if getattr(self.args, 'visdrone_mode', False) and "target_areas" in batch:
+            small_thresh = getattr(self.args, 'small_thresh', 1024)
+            medium_thresh = getattr(self.args, 'medium_thresh', 4096)
+            
+            # GT框尺寸分类
+            gt_areas = batch["target_areas"]  # (N_gt,) - 已经在_prepare_batch中过滤
+            gt_small_mask = gt_areas < small_thresh
+            gt_medium_mask = (gt_areas >= small_thresh) & (gt_areas < medium_thresh)
+            gt_large_mask = gt_areas >= medium_thresh
+            
+            # Pred框尺寸分类 (根据预测框自己的面积)
+            pred_widths = preds["bboxes"][:, 2] - preds["bboxes"][:, 0]
+            pred_heights = preds["bboxes"][:, 3] - preds["bboxes"][:, 1]
+            pred_areas = pred_widths * pred_heights
+            pred_small_mask = pred_areas < small_thresh
+            pred_medium_mask = (pred_areas >= small_thresh) & (pred_areas < medium_thresh)
+            pred_large_mask = pred_areas >= medium_thresh
+            
+            # 计算分尺度TP (重新匹配)
+            def _calc_size_tp(gt_mask, pred_mask):
+                """计算指定尺度的TP矩阵."""
+                if gt_mask.sum().item() == 0 or pred_mask.sum().item() == 0:
+                    return (
+                        np.zeros((0, self.niou), dtype=bool),
+                        np.array([], dtype=np.int32),
+                        np.array([], dtype=np.float32),
+                        np.array([], dtype=np.int32),
+                    )
+                
+                # 获取过滤后的索引
+                pred_indices = pred_mask.nonzero(as_tuple=False).squeeze(1)
+                
+                # 提取对应的预测和GT
+                pred_cls_filtered = preds["cls"][pred_indices]
+                pred_conf_filtered = preds["conf"][pred_indices]
+                gt_cls_filtered = batch["cls"][gt_mask]
+                
+                # 提取对应的IoU子矩阵 [N_gt_filtered, N_pred_filtered]
+                iou_filtered = iou[gt_mask][:, pred_indices]
+                
+                # 重新计算TP
+                tp_filtered = self.match_predictions(
+                    pred_cls_filtered, gt_cls_filtered, iou_filtered
+                ).cpu().numpy()
+                
+                return (
+                    tp_filtered,
+                    gt_cls_filtered.cpu().numpy().astype(np.int32),
+                    pred_conf_filtered.cpu().numpy().astype(np.float32),
+                    pred_cls_filtered.cpu().numpy().astype(np.int32),
+                )
+            
+            tp_small, cls_small, conf_small, pred_small = _calc_size_tp(gt_small_mask, pred_small_mask)
+            tp_medium, cls_medium, conf_medium, pred_medium = _calc_size_tp(gt_medium_mask, pred_medium_mask)
+            tp_large, cls_large, conf_large, pred_large = _calc_size_tp(gt_large_mask, pred_large_mask)
+            
+            result.update({
+                "tp_small": tp_small,
+                "tp_medium": tp_medium,
+                "tp_large": tp_large,
+                "target_cls_small": cls_small,
+                "target_cls_medium": cls_medium,
+                "target_cls_large": cls_large,
+                "conf_small": conf_small,
+                "conf_medium": conf_medium,
+                "conf_large": conf_large,
+                "pred_cls_small": pred_small,
+                "pred_cls_medium": pred_medium,
+                "pred_cls_large": pred_large,
+            })
+        
+        return result
 
     def build_dataset(self, img_path: str, mode: str = "val", batch: int | None = None) -> torch.utils.data.Dataset:
         """

@@ -69,8 +69,8 @@ class DetMetricsVisDrone(DetMetrics):
         self, 
         names: dict[int, str] = {}, 
         visdrone_mode: bool = True,
-        small_thresh: int = 1024,  # 32×32
-        medium_thresh: int = 4096,  # 64×64
+        small_thresh: int = 1024,   # 32×32 (COCO standard)
+        medium_thresh: int = 9216,  # 96×96 (COCO standard, was 4096)
     ) -> None:
         """
         Initialize VisDrone-specific detection metrics.
@@ -78,23 +78,24 @@ class DetMetricsVisDrone(DetMetrics):
         Args:
             names (dict[int, str]): 类别名称字典
             visdrone_mode (bool): 启用VisDrone特定评估
-            small_thresh (int): 小目标面积阈值 (pixels²)
-            medium_thresh (int): 中目标面积阈值 (pixels²)
+            small_thresh (int): 小目标面积阈值 (pixels²) - COCO standard: 32²
+            medium_thresh (int): 中目标面积阈值 (pixels²) - COCO standard: 96²
         
-        📚 八股问题: 为什么VisDrone的中目标定义是32~64而非32~96?
+        📚 八股问题: 为什么采用COCO标准的32²和96²阈值?
         
-        答: 无人机视角特点决定:
-        1. **飞行高度**: UAV通常100-200m高度,目标投影更小
-        2. **分辨率**: VisDrone图像1920×1080,比COCO更大
-        3. **目标分布**: 68.2%为小目标,需要更细粒度的尺度划分
-        4. **实际尺寸**: 行人在UAV视角下通常<32px,车辆32-64px
+        答: 与学术界标准对齐:
+        1. **可比性**: RemDet等UAV检测工作都使用COCO标准阈值
+        2. **COCO标准**: small < 32², medium: 32²~96², large ≥ 96²
+        3. **pycocotools**: 所有使用COCO API的工作默认使用这个划分
+        4. **论文发表**: 审稿人期望看到标准评估协议
         
-        COCO的96×96划分适合地面视角(目标更大),VisDrone需要更敏感的小目标分辨率。
+        注: 我们的实现与COCO略有不同 - 同时过滤Pred和GT (更严格),
+        而COCO只标记GT为ignore (更全面)。详见Phase2.5_v2.3文档。
         """
         super().__init__(names)
         self.visdrone_mode = visdrone_mode
         self.small_area_thresh = small_thresh  # 32×32 = 1024
-        self.medium_area_thresh = medium_thresh  # 64×64 = 4096
+        self.medium_area_thresh = medium_thresh  # 96×96 = 9216 (COCO standard)
         
         # 为不同尺度创建独立的Metric对象
         from ultralytics.utils.metrics import Metric
@@ -110,9 +111,9 @@ class DetMetricsVisDrone(DetMetrics):
         }
         
         LOGGER.info(
-            f"{'VisDrone' if visdrone_mode else 'COCO'}-style evaluation initialized:\n"
+            f"{'VisDrone' if visdrone_mode else 'COCO'}-style evaluation initialized (COCO-aligned):\n"
             f"  Small objects: area < {small_thresh} pixels² (<{int(np.sqrt(small_thresh))}×{int(np.sqrt(small_thresh))})\n"
-            f"  Medium objects: {small_thresh} ≤ area < {medium_thresh} pixels²\n"
+            f"  Medium objects: {small_thresh} ≤ area < {medium_thresh} pixels² ({int(np.sqrt(small_thresh))}×{int(np.sqrt(small_thresh))} ~ {int(np.sqrt(medium_thresh))}×{int(np.sqrt(medium_thresh))})\n"
             f"  Large objects: area ≥ {medium_thresh} pixels² (≥{int(np.sqrt(medium_thresh))}×{int(np.sqrt(medium_thresh))})"
         )
 
@@ -122,29 +123,62 @@ class DetMetricsVisDrone(DetMetrics):
         
         Args:
             stat (dict): 包含tp, conf, pred_cls, target_cls, target_img, target_areas
+                        (VisDrone模式下还包含 tp_small/medium/large等)
         
-        新增功能: 根据target_areas将统计量分配到small/medium/large三个bucket
+        新增功能: 
+            - 如果stat包含 tp_small/medium/large,直接使用 (来自val.py的重新计算)
+            - 否则回退到旧逻辑 (按target_areas过滤,但会导致mAP虚高)
+        
+        ✅ 正确数据流 (Phase 2.5 v2.2):
+            1. val.py::_process_batch() 根据GT和Pred的size同时过滤
+            2. 重新调用 match_predictions() 计算分尺度TP
+            3. 传递 tp_small, target_cls_small, conf_small, pred_cls_small等12个字段
+            4. metrics_visdrone.py 直接使用,无需再次过滤!
         """
         # 标准全局统计更新
         super().update_stats(stat)
         
         # VisDrone模式下的分尺度统计
-        if self.visdrone_mode and 'target_areas' in stat:
-            areas = stat['target_areas']  # [N,] 目标面积数组
+        if self.visdrone_mode:
+            # ✅ Phase 2.5 v2.2: 优先使用val.py计算的分尺度TP
+            if 'tp_small' in stat:
+                # 直接使用预先计算的分尺度统计
+                for size_key in ['small', 'medium', 'large']:
+                    tp_key = f'tp_{size_key}'
+                    cls_key = f'target_cls_{size_key}'
+                    conf_key = f'conf_{size_key}'
+                    pred_cls_key = f'pred_cls_{size_key}'
+                    
+                    # 只在有数据时添加 (避免空数组污染统计)
+                    if stat[tp_key].shape[0] > 0:
+                        self.stats_by_size[size_key]['tp'].append(stat[tp_key])
+                        self.stats_by_size[size_key]['conf'].append(stat[conf_key])
+                        self.stats_by_size[size_key]['pred_cls'].append(stat[pred_cls_key])
+                        self.stats_by_size[size_key]['target_cls'].append(stat[cls_key])
+                        self.stats_by_size[size_key]['target_img'].append(np.unique(stat[cls_key]))
             
-            # 创建尺度mask
-            small_mask = areas < self.small_area_thresh
-            medium_mask = (areas >= self.small_area_thresh) & (areas < self.medium_area_thresh)
-            large_mask = areas >= self.medium_area_thresh
-            
-            # 分别存储不同尺度的统计量
-            for size_key, mask in [('small', small_mask), ('medium', medium_mask), ('large', large_mask)]:
-                if mask.sum() > 0:  # 只存储有目标的尺度
-                    self.stats_by_size[size_key]['tp'].append(stat['tp'][mask])
-                    self.stats_by_size[size_key]['conf'].append(stat['conf'][mask])
-                    self.stats_by_size[size_key]['pred_cls'].append(stat['pred_cls'][mask])
-                    self.stats_by_size[size_key]['target_cls'].append(stat['target_cls'][mask])
-                    self.stats_by_size[size_key]['target_img'].append(stat['target_img'][mask])
+            # ❌ 旧逻辑 (已废弃,但保留向后兼容)
+            elif 'target_areas' in stat:
+                LOGGER.warning(
+                    "Using legacy size-wise分类 (based on GT areas only). "
+                    "This may cause inflated mAP. Please update val.py to compute tp_small/medium/large."
+                )
+                areas = stat['target_areas']  # [N_gt,] 目标面积数组
+                
+                # 创建尺度mask
+                small_mask = areas < self.small_area_thresh
+                medium_mask = (areas >= self.small_area_thresh) & (areas < self.medium_area_thresh)
+                large_mask = areas >= self.medium_area_thresh
+                
+                # 分别存储不同尺度的统计量 (保持Pred完整,过滤GT)
+                for size_key, mask in [('small', small_mask), ('medium', medium_mask), ('large', large_mask)]:
+                    if mask.sum() > 0:
+                        self.stats_by_size[size_key]['tp'].append(stat['tp'])
+                        self.stats_by_size[size_key]['conf'].append(stat['conf'])
+                        self.stats_by_size[size_key]['pred_cls'].append(stat['pred_cls'])
+                        self.stats_by_size[size_key]['target_cls'].append(stat['target_cls'][mask])
+                        filtered_cls = stat['target_cls'][mask]
+                        self.stats_by_size[size_key]['target_img'].append(np.unique(filtered_cls))
 
     def process(self, save_dir: Path = Path("."), plot: bool = False, on_plot=None) -> dict[str, np.ndarray]:
         """
@@ -232,6 +266,9 @@ class DetMetricsVisDrone(DetMetrics):
     def results_dict(self) -> dict[str, float]:
         """扩展results_dict,包含VisDrone特定指标."""
         base_dict = super().results_dict
+        
+        # 🆕 添加 mAP@0.75 (标准YOLO没有这个字段,但RemDet论文报告了)
+        base_dict['metrics/mAP75(B)'] = float(self.box.all_ap[:, 5].mean())  # IoU=0.75对应索引5
         
         if self.visdrone_mode:
             visdrone_dict = {

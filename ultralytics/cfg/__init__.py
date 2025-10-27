@@ -200,6 +200,9 @@ CFG_INT_KEYS = frozenset(
         "line_width",
         "nbs",
         "save_period",
+        # 🆕 VisDrone特定参数
+        "small_thresh",   # 小目标面积阈值 (默认1024 = 32x32)
+        "medium_thresh",  # 中目标面积阈值 (默认4096 = 64x64)
     }
 )
 CFG_BOOL_KEYS = frozenset(
@@ -237,6 +240,8 @@ CFG_BOOL_KEYS = frozenset(
         "nms",
         "profile",
         "multi_scale",
+        # 🆕 VisDrone特定参数
+        "visdrone_mode",  # 启用VisDrone分尺度评估
     }
 )
 

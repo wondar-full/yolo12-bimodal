@@ -7,7 +7,7 @@ VisDrone-specific validation script with RemDet-aligned evaluation.
 
 核心特性:
 1. ✅ VisDrone官方IoU阈值: [0.5:0.05:0.95] (10个阈值)
-2. ✅ 分尺度mAP计算: small (<32×32), medium (32~64), large (>64×64)
+2. ✅ 分尺度mAP计算: small (<32×32), medium (32~96), large (>96×96) [COCO-aligned]
 3. ✅ RemDet完整指标: mAP@0.5, mAP@0.75, Latency, FLOPs, Params
 4. ✅ 优化的NMS参数: iou=0.45, conf=0.001, max_det=300
 5. ✅ 详细统计信息: 每个类别的分尺度性能
@@ -74,9 +74,9 @@ DEFAULT_CONFIG = {
     'iou': 0.45,                         # NMS IoU阈值
     'max_det': 300,                      # 最大检测数
     
-    # VisDrone尺度阈值
-    'small_thresh': 1024,                # 小目标 <32×32
-    'medium_thresh': 4096,               # 中目标 32~64
+    # VisDrone尺度阈值 (COCO-aligned)
+    'small_thresh': 1024,                # 小目标 <32×32 (COCO standard)
+    'medium_thresh': 9216,               # 中目标 32~96 (COCO standard, was 4096)
     
     # RemDet-X基准 (AAAI2025, Table 2)
     'remdet_map50': 45.2,                # mAP@0.5
@@ -160,6 +160,12 @@ def parse_args():
                         help=f"NMS IoU threshold (default: {DEFAULT_CONFIG['iou']})")
     parser.add_argument('--max-det', type=int, default=DEFAULT_CONFIG['max_det'],
                         help=f"Max detections (default: {DEFAULT_CONFIG['max_det']})")
+    
+    # VisDrone特定参数 (分尺度评估)
+    parser.add_argument('--small-thresh', type=int, default=DEFAULT_CONFIG['small_thresh'],
+                        help=f"Small object area threshold (default: {DEFAULT_CONFIG['small_thresh']} = 32x32)")
+    parser.add_argument('--medium-thresh', type=int, default=DEFAULT_CONFIG['medium_thresh'],
+                        help=f"Medium object area threshold (default: {DEFAULT_CONFIG['medium_thresh']} = 96x96, COCO standard)")
     
     # 开关参数
     parser.add_argument('--no-plots', action='store_true',
@@ -427,14 +433,14 @@ def print_remdet_comparison(
     UAV场景: 小目标多,mAP75尤其重要 (框稍微偏一点IoU就<0.75)
     RemDet-X: mAP50=45.2%, mAP75=28.5% (估计值,论文未明确)
     """
-    # 提取所有指标
+    # 提取所有指标 (注意: metrics中的值已经是0-1之间的小数,需要*100转换为百分比)
     map50 = metrics.get('metrics/mAP50(B)', 0) * 100
     map75 = metrics.get('metrics/mAP75(B)', 0) * 100  # 新增mAP75
     map50_95 = metrics.get('metrics/mAP50-95(B)', 0) * 100
     precision = metrics.get('metrics/precision(B)', 0) * 100
     recall = metrics.get('metrics/recall(B)', 0) * 100
     
-    # 分尺度mAP
+    # 分尺度mAP (✅ 同样需要*100)
     map50_small = metrics.get('metrics/mAP50(B-small)', 0) * 100
     map50_medium = metrics.get('metrics/mAP50(B-medium)', 0) * 100
     map50_large = metrics.get('metrics/mAP50(B-large)', 0) * 100
@@ -452,10 +458,10 @@ def print_remdet_comparison(
     remdet_flops = DEFAULT_CONFIG['remdet_flops']
     remdet_latency = DEFAULT_CONFIG['remdet_latency']
     
-    # 计算gap
+    # 计算gap (所有值都是百分比,可以直接相减)
     gap_map50 = map50 - remdet_map50
     gap_map75 = map75 - remdet_map75
-    gap_small = map50_small - remdet_small
+    gap_small = map50_small - remdet_small  # ✅ 都是百分比,直接相减
     gap_params = params - remdet_params
     gap_flops = flops - remdet_flops
     gap_latency = latency - remdet_latency
@@ -478,12 +484,13 @@ def print_remdet_comparison(
     
     # 分尺度对比
     if map50_small > 0:
-        report.append("\n📐 By Object Size:")
+        report.append("\n📐 By Object Size (COCO-aligned):")
         report.append(f"  {'Size Range':<20} {'Our Model':<15} {'RemDet-X':<15} {'Gap':<20} {'Status':<10}")
         report.append(f"  {'-'*20} {'-'*15} {'-'*15} {'-'*20} {'-'*10}")
+        # ✅ 恢复: 所有值都是百分比,用 {:.2f}% 格式化
         report.append(f"  {'Small (<32×32)':<20} {map50_small:>14.2f}% {remdet_small:>14.1f}% {gap_small:>+14.2f}% ({gap_small/remdet_small*100:>+5.1f}%) {'✅' if gap_small >= 0 else '❌'}")
-        report.append(f"  {'Medium (32~64)':<20} {map50_medium:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
-        report.append(f"  {'Large (>64×64)':<20} {map50_large:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
+        report.append(f"  {'Medium (32~96)':<20} {map50_medium:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
+        report.append(f"  {'Large (>96×96)':<20} {map50_large:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
     
     # 效率指标对比
     report.append("\n⚡ Efficiency Metrics:")
@@ -513,6 +520,8 @@ def print_remdet_comparison(
                 report.append(f"      → CRITICAL: Small object detection is the main bottleneck!")
     
     # 效率分析
+
+
     if gap_latency < 0 and gap_params < 0:
         report.append(f"  🚀 Model is {abs(gap_latency/remdet_latency*100):.1f}% faster AND {abs(gap_params/remdet_params*100):.1f}% lighter than RemDet-X!")
     elif gap_latency < 0:
