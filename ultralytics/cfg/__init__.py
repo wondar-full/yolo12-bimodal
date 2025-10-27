@@ -202,7 +202,7 @@ CFG_INT_KEYS = frozenset(
         "save_period",
         # 🆕 VisDrone特定参数
         "small_thresh",   # 小目标面积阈值 (默认1024 = 32x32)
-        "medium_thresh",  # 中目标面积阈值 (默认4096 = 64x64)
+        "medium_thresh",  # 中目标面积阈值 (默认9216 = 96x96, COCO standard)
     }
 )
 CFG_BOOL_KEYS = frozenset(

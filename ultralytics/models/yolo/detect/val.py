@@ -67,7 +67,7 @@ class DetectionValidator(BaseValidator):
         if visdrone_mode:
             LOGGER.info(f"Using DetMetricsVisDrone with visdrone_mode={visdrone_mode}")
             small_thresh = getattr(self.args, 'small_thresh', 1024)    # 默认32x32
-            medium_thresh = getattr(self.args, 'medium_thresh', 4096)  # 默认64x64
+            medium_thresh = getattr(self.args, 'medium_thresh', 9216)  # 默认64x64
             self.metrics = DetMetricsVisDrone(
                 visdrone_mode=visdrone_mode,
                 small_thresh=small_thresh,
@@ -350,7 +350,7 @@ class DetectionValidator(BaseValidator):
         # 🆕 VisDrone模式: 计算分尺度TP
         if getattr(self.args, 'visdrone_mode', False) and "target_areas" in batch:
             small_thresh = getattr(self.args, 'small_thresh', 1024)
-            medium_thresh = getattr(self.args, 'medium_thresh', 4096)
+            medium_thresh = getattr(self.args, 'medium_thresh', 9216)  # COCO standard (was 4096)
             
             # GT框尺寸分类
             gt_areas = batch["target_areas"]  # (N_gt,) - 已经在_prepare_batch中过滤
