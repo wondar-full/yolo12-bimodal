@@ -11,19 +11,19 @@
 
 # Dataset root path (absolute path recommended)
 path:
-  /path/to/VisDrone2019-DET # TODO: Replace with your actual dataset path
+  /data2/user/2024/lzy/Datasets/VisDrone2019-DET-YOLO/VisDrone2YOLO # TODO: Replace with your actual dataset path
   # Example: /data/datasets/VisDrone2019-DET
   # Example (Windows): F:/Datasets/VisDrone2019-DET
 
 # RGB image paths (relative to 'path')
-train: images/train # Training RGB images directory
-val: images/val # Validation RGB images directory
-test: images/test # Test RGB images directory (optional)
+train: VisDrone2019-DET-train/images/rgb # Training RGB images directory
+val: VisDrone2019-DET-val/images/rgb # Validation RGB images directory
+test: VisDrone2019-DET-val/images/rgb # Test RGB images directory (optional)
 
 # Depth map paths (relative to 'path') - REQUIRED FOR RGB-D TRAINING
-train_depth: depths/train # Training depth maps directory
-val_depth: depths/val # Validation depth maps directory
-test_depth: depths/test # Test depth maps directory (optional)
+train_depth: VisDrone2019-DET-train/images/d # Training depth maps directory
+val_depth: VisDrone2019-DET-val/images/d # Validation depth maps directory
+test_depth: VisDrone2019-DET-val/images/d # Test depth maps directory (optional)
 
 # Number of classes
 nc: 10

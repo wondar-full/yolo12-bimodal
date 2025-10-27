@@ -64,7 +64,7 @@ def parse_args():
     parser.add_argument(
         "--weights",
         type=str,
-        default="",
+        default="/data2/user/2024/lzy/yolo12-bimodal/models/yolo12s.pt",
         help="Pretrained weights path (optional). Use yolo12s.pt for RGB branch initialization"
     )
     
@@ -98,7 +98,7 @@ def parse_args():
     parser.add_argument(
         "--device",
         type=str,
-        default="0",
+        default="2",
         help="CUDA device(s) to use, e.g. '0' or '0,1,2,3' for multi-GPU"
     )
     
