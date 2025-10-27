@@ -1,0 +1,271 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 License
+# YOLO12-S RGB-D ChannelC2f - Phase 3: Enhanced Medium-Scale Detection
+# Created: 2025-10-27 for yoloDepth Phase 3
+# Objective: Solve Medium mAP crisis (14.28% → target 20%+)
+
+# ================================================================================================
+# Phase 3 Background
+# ================================================================================================
+# Problem Discovery:
+#   - Medium objects占比: 45.5% (17,647个) - 最多！
+#   - Medium mAP: 14.28% - 最低！
+#   - Medium Recall: 11.7% - 严重漏检！
+#   - Small mAP (18.13%) 和 Large mAP (26.88%) 都正常
+#
+# Root Cause:
+#   - P4层 (stride=16, medium detection layer) 特征表达不足
+#   - 模型偏向Small和Large，忽略Medium
+#
+# Solution:
+#   - 在P4层使用ChannelC2f (C2f + Channel Attention)
+#   - 增强中等尺度特征的通道表达能力
+#   - 参数增加: +1.4% (131K for 512 channels)
+#
+# Expected Improvement:
+#   - Medium mAP: 14.28% → 20-25% (+6-11%)
+#   - Overall mAP: 44.03% → 46-48% (+2-4%)
+#
+# ================================================================================================
+
+# Model Configuration
+nc: 10 # VisDrone classes
+
+# Model compound scaling (using 's' scale)
+scales:
+  n: [0.50, 0.25, 1024]
+  s: [0.50, 0.50, 1024] # **baseline for Phase 3**
+  m: [0.50, 1.00, 512]
+  l: [1.00, 1.00, 512]
+  x: [1.00, 1.50, 512]
+
+# ================================================================================================
+# Backbone (Phase 3 Modified)
+# ================================================================================================
+# Key Modification:
+#   Layer 6 (P4/16): C2f → ChannelC2f
+#   - P3 (Small detection): Keep C3k2 ✅
+#   - P4 (Medium detection): Use ChannelC2f ⭐ (ONLY CHANGE!)
+#   - P5 (Large detection): Keep A2C2f ✅
+
+backbone:
+  # [from, repeats, module, args]
+
+  # Layer 0-1: RGB-D Input Processing (Same as v1)
+  - [-1, 1, RGBDStem, [4, 128, 3, 2, 1, 64, "gated_add", 16, True]] # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+
+  # Layer 2-4: P3 Path (Small detection - unchanged)
+  - [-1, 2, C3k2, [256, False, 0.25]] # 2
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 4
+
+  # Layer 5-6: P4 Path (Medium detection - Phase 3 MODIFICATION)
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+
+  # ⭐ Phase 3: Replace A2C2f with ChannelC2f
+  # Args: [c2, shortcut, n, g, e, reduction]
+  #   c2=512: Output channels
+  #   shortcut=True: Use residual connections in Bottleneck
+  #   n=4: Number of Bottleneck blocks (depth_multiple=0.5 → 4*0.5=2 实际)
+  #   g=1: Groups (standard convolution)
+  #   e=0.5: Expansion ratio (hidden channels = 512*0.5=256)
+  #   reduction=16: Channel attention reduction ratio (512/16=32 bottleneck)
+  - [-1, 4, ChannelC2f, [512, True, 1, 0.5, 16]] # 6-P4/16 ⭐ (Phase 3改进)
+
+  # Layer 7-8: P5 Path (Large detection - unchanged)
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 4, A2C2f, [1024, True, 1]] # 8
+
+# ================================================================================================
+# Head (Unchanged from v1)
+# ================================================================================================
+head:
+  # Upsample path
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 9
+  - [[-1, 6], 1, Concat, [1]] # 10 - cat backbone P4 (ChannelC2f output)
+  - [-1, 2, A2C2f, [512, False, -1]] # 11
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 12
+  - [[-1, 4], 1, Concat, [1]] # 13 - cat backbone P3
+  - [-1, 2, A2C2f, [256, False, -1]] # 14
+
+  # Downsample path
+  - [-1, 1, Conv, [256, 3, 2]] # 15
+  - [[-1, 11], 1, Concat, [1]] # 16 - cat head P4
+  - [-1, 2, A2C2f, [512, False, -1]] # 17
+
+  - [-1, 1, Conv, [512, 3, 2]] # 18
+  - [[-1, 8], 1, Concat, [1]] # 19 - cat head P5
+  - [-1, 2, C3k2, [1024, True]] # 20
+
+  # Detection heads
+  - [[14, 17, 20], 1, Detect, [nc]] # 21 - Detect(P3, P4, P5)
+
+# ================================================================================================
+# Training Configuration (Phase 3)
+# ================================================================================================
+# Recommended hyperparameters (use in train_phase3.py):
+#
+# Basic settings:
+#   epochs: 150              # Same as Phase 1 for fair comparison
+#   batch: 16
+#   imgsz: 640
+#   device: 0
+#   workers: 8
+#
+# Optimizer:
+#   optimizer: AdamW
+#   lr0: 0.001
+#   lrf: 0.01
+#   momentum: 0.937
+#   weight_decay: 0.0005
+#   warmup_epochs: 3
+#   close_mosaic: 10
+#
+# Data augmentation (same as Phase 1):
+#   hsv_h: 0.015
+#   hsv_s: 0.7
+#   hsv_v: 0.4
+#   degrees: 0.0
+#   translate: 0.1
+#   scale: 0.5
+#   flipud: 0.0
+#   fliplr: 0.5
+#   mosaic: 1.0
+#   mixup: 0.0
+#
+# VisDrone evaluation:
+#   visdrone_mode: True
+#   small_thresh: 1024    # 32² (COCO standard)
+#   medium_thresh: 9216   # 96² (COCO standard)
+#
+# ================================================================================================
+
+# ================================================================================================
+# Model Summary (Expected - Phase 3)
+# ================================================================================================
+# Comparison with Phase 1 (yolo12s-rgbd-v1):
+#
+#   Metric              Phase 1       Phase 3       Delta
+#   -----------------  ------------  ------------  ----------
+#   Parameters (M)      9.39          9.52          +1.4%
+#   FLOPs (G)          19.99         20.10          +0.5%
+#   Inference (ms)     18.53         ~19.0          +2.5%
+#
+#   Medium mAP@0.5     14.28%        20-25%         +6-11% ⭐
+#   Medium Recall      11.7%         20-25%         +8-13% ⭐
+#   Overall mAP@0.5    44.03%        46-48%         +2-4%  ⭐
+#
+# ChannelAttention overhead (P4 layer only):
+#   - Additional params: 131,072 (512²/8)
+#   - Additional FLOPs: ~0.1G (negligible)
+#   - Memory overhead: <5MB
+#
+# ================================================================================================
+
+# ================================================================================================
+# Validation Criteria
+# ================================================================================================
+# Phase 3 is considered **successful** if:
+#
+# ✅ Minimum (Phase 3 有效):
+#   - Medium mAP@0.5 ≥ 18% (+4%)
+#   - Overall mAP@0.5 ≥ 45% (+1%)
+#   - No significant drop in Small/Large mAP
+#
+# ✅ Target (Phase 3 成功):
+#   - Medium mAP@0.5 ≥ 20% (+6%)
+#   - Overall mAP@0.5 ≥ 46% (+2%)
+#   - Small/Large mAP maintained or improved
+#
+# ✅ Excellent (超出预期):
+#   - Medium mAP@0.5 ≥ 23% (+9%)
+#   - Overall mAP@0.5 ≥ 47% (+3%)
+#   - Medium Recall ≥ 25% (+13%)
+#
+# If Phase 3 fails (Medium mAP <18%):
+#   - Try reduction=8 or 32 (adjust sensitivity)
+#   - Add ChannelC2f to P3 and P5 as well
+#   - Increase training epochs to 200
+#
+# ================================================================================================
+
+# ================================================================================================
+# Ablation Studies (Optional)
+# ================================================================================================
+# To validate the effectiveness of ChannelC2f, consider these experiments:
+#
+# 1. Ablation-1: ChannelC2f on P3 instead of P4
+#    - Objective: Verify P4 is the right layer
+#    - Expected: Worse than Phase 3 (Small already good)
+#
+# 2. Ablation-2: ChannelC2f on P4+P5 (two layers)
+#    - Objective: Test if multi-layer is better
+#    - Expected: Slight improvement but more overhead
+#
+# 3. Ablation-3: Different reduction ratios
+#    - reduction=8:  More parameters, stronger attention
+#    - reduction=32: Fewer parameters, weaker attention
+#    - Expected: reduction=16 is optimal (baseline)
+#
+# 4. Ablation-4: Replace with Spatial Attention
+#    - Objective: Compare Channel vs Spatial attention
+#    - Expected: Channel attention is better for scale issues
+#
+# ================================================================================================
+
+# ================================================================================================
+# Usage Examples
+# ================================================================================================
+# 1. Training Phase 3:
+#    ```bash
+#    python train_phase3.py \
+#      --model ultralytics/cfg/models/12/yolo12s-rgbd-channelc2f.yaml \
+#      --data data/visdrone-rgbd.yaml \
+#      --epochs 150 \
+#      --batch 16 \
+#      --name phase3_channelc2f
+#    ```
+#
+# 2. Validation:
+#    ```bash
+#    CUDA_VISIBLE_DEVICES=6 python val_visdrone.py \
+#      --model runs/train/phase3_channelc2f/weights/best.pt
+#    ```
+#
+# 3. Compare with Phase 1:
+#    ```bash
+#    python compare_phases.py \
+#      --baseline runs/train/phase1_test7/weights/best.pt \
+#      --phase3 runs/train/phase3_channelc2f/weights/best.pt
+#    ```
+#
+# ================================================================================================
+
+# ================================================================================================
+# Next Steps After Phase 3
+# ================================================================================================
+# If Phase 3 achieves Medium mAP ≥ 20%:
+#
+# **Phase 4: SOLR Loss (Size-aware Object Localization Regression Loss)**
+#   - Objective: Further boost Medium Recall (20% → 28-32%)
+#   - Method: Adaptive loss weighting based on object size
+#   - Expected: Medium mAP 20% → 30-35% (+10-15%)
+#
+# Combined Phase 3+4 Target:
+#   - Medium mAP: 14.28% → 30-35% (+16-21%) ⭐⭐⭐
+#   - Overall mAP: 44.03% → 49-51% (+5-7%) ⭐⭐⭐
+#   - Approach or exceed RemDet-X performance! 🎯
+#
+# ================================================================================================
+
+# ================================================================================================
+# References & Documentation
+# ================================================================================================
+# - Design Document: Phase3_ChannelC2f_设计方案.md
+# - Dataset Distribution: check_dataset_distribution.py output
+# - Phase 1 Baseline: runs/train/phase1_test7/
+# - RemDet Paper: AAAI2025 - Rethinking Efficient Model Design for UAV Object Detection
+# - SENet Paper: https://arxiv.org/abs/1709.01507 (Channel Attention原理)
+#
+# ================================================================================================
