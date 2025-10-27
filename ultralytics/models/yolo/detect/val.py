@@ -15,6 +15,7 @@ from ultralytics.engine.validator import BaseValidator
 from ultralytics.utils import LOGGER, RANK, nms, ops
 from ultralytics.utils.checks import check_requirements
 from ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
+from ultralytics.utils.metrics_visdrone import DetMetricsVisDrone  # 🆕 添加VisDrone metrics
 from ultralytics.utils.plotting import plot_images
 
 
@@ -60,7 +61,21 @@ class DetectionValidator(BaseValidator):
         self.args.task = "detect"
         self.iouv = torch.linspace(0.5, 0.95, 10)  # IoU vector for mAP@0.5:0.95
         self.niou = self.iouv.numel()
-        self.metrics = DetMetrics()
+        
+        # 🆕 根据args.visdrone_mode决定使用哪个metrics类
+        visdrone_mode = getattr(self.args, 'visdrone_mode', False)
+        if visdrone_mode:
+            LOGGER.info(f"Using DetMetricsVisDrone with visdrone_mode={visdrone_mode}")
+            small_thresh = getattr(self.args, 'small_thresh', 1024)    # 默认32x32
+            medium_thresh = getattr(self.args, 'medium_thresh', 4096)  # 默认64x64
+            self.metrics = DetMetricsVisDrone(
+                visdrone_mode=visdrone_mode,
+                small_thresh=small_thresh,
+                medium_thresh=medium_thresh,
+            )
+        else:
+            LOGGER.info("Using standard DetMetrics")
+            self.metrics = DetMetrics()
 
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
         """
@@ -149,7 +164,13 @@ class DetectionValidator(BaseValidator):
         ratio_pad = batch["ratio_pad"][si]
         if cls.shape[0]:
             bbox = ops.xywh2xyxy(bbox) * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]  # target boxes
-        return {
+        
+        # 🆕 提取target_areas (如果存在)
+        target_areas = batch.get("target_areas", None)
+        if target_areas is not None and len(idx) > 0:
+            target_areas = target_areas[idx]  # 过滤当前batch的areas
+        
+        result = {
             "cls": cls,
             "bboxes": bbox,
             "ori_shape": ori_shape,
@@ -157,6 +178,12 @@ class DetectionValidator(BaseValidator):
             "ratio_pad": ratio_pad,
             "im_file": batch["im_file"][si],
         }
+        
+        # 🆕 只在target_areas存在时添加(避免普通YOLO任务报错)
+        if target_areas is not None:
+            result["target_areas"] = target_areas
+        
+        return result
 
     def _prepare_pred(self, pred: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """
@@ -187,15 +214,25 @@ class DetectionValidator(BaseValidator):
 
             cls = pbatch["cls"].cpu().numpy()
             no_pred = predn["cls"].shape[0] == 0
-            self.metrics.update_stats(
-                {
-                    **self._process_batch(predn, pbatch),
-                    "target_cls": cls,
-                    "target_img": np.unique(cls),
-                    "conf": np.zeros(0) if no_pred else predn["conf"].cpu().numpy(),
-                    "pred_cls": np.zeros(0) if no_pred else predn["cls"].cpu().numpy(),
-                }
-            )
+            
+            # 🆕 构建stats字典,包含target_areas(如果存在)
+            stats_dict = {
+                **self._process_batch(predn, pbatch),
+                "target_cls": cls,
+                "target_img": np.unique(cls),
+                "conf": np.zeros(0) if no_pred else predn["conf"].cpu().numpy(),
+                "pred_cls": np.zeros(0) if no_pred else predn["cls"].cpu().numpy(),
+            }
+            
+            # 🆕 如果pbatch有target_areas,添加到stats(for VisDrone size-wise metrics)
+            if "target_areas" in pbatch:
+                target_areas = pbatch["target_areas"]
+                # 确保转换为numpy数组
+                if isinstance(target_areas, torch.Tensor):
+                    target_areas = target_areas.cpu().numpy()
+                stats_dict["target_areas"] = target_areas
+            
+            self.metrics.update_stats(stats_dict)
             # Evaluate
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, pbatch, conf=self.args.conf)

@@ -2204,6 +2204,14 @@ class Format:
         labels["img"] = self._format_img(img)
         labels["cls"] = torch.from_numpy(cls) if nl else torch.zeros(nl, 1)
         labels["bboxes"] = torch.from_numpy(instances.bboxes) if nl else torch.zeros((nl, 4))
+        
+        # 🆕 处理target_areas (for VisDrone size-wise metrics)
+        if "target_areas" in labels:
+            target_areas = labels["target_areas"]
+            # 如果是numpy数组,转换为tensor
+            if isinstance(target_areas, np.ndarray):
+                labels["target_areas"] = torch.from_numpy(target_areas) if nl else torch.zeros(nl)
+        
         if self.return_keypoint:
             labels["keypoints"] = (
                 torch.empty(0, 3) if instances.keypoints is None else torch.from_numpy(instances.keypoints)

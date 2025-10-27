@@ -272,6 +272,33 @@ class YOLODataset(BaseDataset):
         bbox_format = label.pop("bbox_format")
         normalized = label.pop("normalized")
 
+        # 🆕 计算目标面积 (for VisDrone size-wise metrics)
+        if len(bboxes) > 0:
+            if bbox_format == "xyxy":
+                # bboxes格式: [x1, y1, x2, y2, ...]
+                widths = bboxes[:, 2] - bboxes[:, 0]
+                heights = bboxes[:, 3] - bboxes[:, 1]
+            elif bbox_format == "xywh":
+                # bboxes格式: [x_center, y_center, w, h, ...]
+                widths = bboxes[:, 2]
+                heights = bboxes[:, 3]
+            else:
+                # 其他格式暂不支持,设为0
+                widths = np.zeros(len(bboxes))
+                heights = np.zeros(len(bboxes))
+            
+            # 如果是归一化坐标,需要乘以图像尺寸才能得到像素面积
+            if normalized:
+                img_h, img_w = label.get("ori_shape", label.get("resized_shape", (640, 640)))[:2]
+                widths = widths * img_w
+                heights = heights * img_h
+            
+            target_areas = (widths * heights).astype(np.float32)
+        else:
+            target_areas = np.array([], dtype=np.float32)
+        
+        label["target_areas"] = target_areas  # 🆕 添加到label字典
+
         # NOTE: do NOT resample oriented boxes
         segment_resamples = 100 if self.use_obb else 1000
         if len(segments) > 0:
@@ -306,7 +333,8 @@ class YOLODataset(BaseDataset):
                 value = torch.stack(value, 0)
             elif k == "visuals":
                 value = torch.nn.utils.rnn.pad_sequence(value, batch_first=True)
-            if k in {"masks", "keypoints", "bboxes", "cls", "segments", "obb"}:
+            # 🆕 target_areas 需要concat (与bboxes/cls一样)
+            if k in {"masks", "keypoints", "bboxes", "cls", "segments", "obb", "target_areas"}:
                 value = torch.cat(value, 0)
             new_batch[k] = value
         new_batch["batch_idx"] = list(new_batch["batch_idx"])

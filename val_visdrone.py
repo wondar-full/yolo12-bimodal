@@ -358,6 +358,10 @@ def validate_visdrone(args):
         verbose=args.verbose,
         project='runs/val',
         name=args.name,
+        # 🆕 添加VisDrone特定参数
+        visdrone_mode=True,  # 启用VisDrone分尺度评估
+        small_thresh=args.small_thresh,
+        medium_thresh=args.medium_thresh,
     )
     
     # 执行验证
