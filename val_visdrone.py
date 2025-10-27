@@ -146,7 +146,7 @@ def parse_args():
                         help=f"Path to data.yaml (default: {DEFAULT_CONFIG['data']})")
     parser.add_argument('--name', type=str, default=None,
                         help='Save name (default: auto-generate from model path)')
-    parser.add_argument('--device', type=str, default='0',
+    parser.add_argument('--device', type=str, default='3',
                         help='CUDA device, e.g., 0 or 0,1,2,3 or cpu')
     
     # 高级参数 (罕见修改,使用DEFAULT_CONFIG)

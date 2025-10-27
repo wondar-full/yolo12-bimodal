@@ -64,7 +64,7 @@ def parse_args():
     parser.add_argument(
         "--weights",
         type=str,
-        default="/data2/user/2024/lzy/yolo12-bimodal/models/yolo12s.pt",
+        default="/data2/user/2024/lzy/yolo12-bimodal/models/yolo12n.pt",
         help="Pretrained weights path (optional). Use yolo12s.pt for RGB branch initialization"
     )
     
