@@ -79,12 +79,15 @@ DEFAULT_CONFIG = {
     'medium_thresh': 9216,               # 中目标 32~96 (COCO standard, was 4096)
     
     # RemDet-X基准 (AAAI2025, Table 2)
-    'remdet_map50': 45.2,                # mAP@0.5
-    'remdet_map75': 28.5,                # mAP@0.75 (估计值,论文未明确)
-    'remdet_small': 21.3,                # mAP_small
+    'remdet_map50': 48.3,                # mAP@0.5
+    'remdet_map75': 31.0,                # mAP@0.75 
+    'remdet_map95': 29.9,                # mAP@0.95
+    'remdet_small': 19.5,                # mAP_small
+    'remdet_medium': 44.1,                # mAP_small
+    'remdet_large': 58.6,                # mAP_small
     'remdet_params': 16.3,               # 参数量 (M)
-    'remdet_flops': 52.4,                # FLOPs (G)
-    'remdet_latency': 12.8,              # Latency (ms, RTX 3090)
+    'remdet_flops': 114,                # FLOPs (G)
+    'remdet_latency': 8.9,              # Latency (ms, RTX 3090)
     
     # 输出配置
     'plots': True,                       # 生成PR曲线
@@ -146,7 +149,7 @@ def parse_args():
                         help=f"Path to data.yaml (default: {DEFAULT_CONFIG['data']})")
     parser.add_argument('--name', type=str, default=None,
                         help='Save name (default: auto-generate from model path)')
-    parser.add_argument('--device', type=str, default='3',
+    parser.add_argument('--device', type=str, default='0',
                         help='CUDA device, e.g., 0 or 0,1,2,3 or cpu')
     
     # 高级参数 (罕见修改,使用DEFAULT_CONFIG)
@@ -453,7 +456,10 @@ def print_remdet_comparison(
     # RemDet-X基准 (AAAI2025)
     remdet_map50 = DEFAULT_CONFIG['remdet_map50']
     remdet_map75 = DEFAULT_CONFIG['remdet_map75']
+    remdet_map95 = DEFAULT_CONFIG['remdet_map95']
     remdet_small = DEFAULT_CONFIG['remdet_small']
+    remdet_medium = DEFAULT_CONFIG['remdet_medium']
+    remdet_large = DEFAULT_CONFIG['remdet_large']
     remdet_params = DEFAULT_CONFIG['remdet_params']
     remdet_flops = DEFAULT_CONFIG['remdet_flops']
     remdet_latency = DEFAULT_CONFIG['remdet_latency']
@@ -461,7 +467,10 @@ def print_remdet_comparison(
     # 计算gap (所有值都是百分比,可以直接相减)
     gap_map50 = map50 - remdet_map50
     gap_map75 = map75 - remdet_map75
+    gap_map95 = map50_95 - remdet_map95
     gap_small = map50_small - remdet_small  # ✅ 都是百分比,直接相减
+    gap_medium = map50_medium - remdet_medium  # ✅ 都是百分比,直接相减
+    gap_large = map50_large - remdet_large  # ✅ 都是百分比,直接相减
     gap_params = params - remdet_params
     gap_flops = flops - remdet_flops
     gap_latency = latency - remdet_latency
@@ -478,7 +487,7 @@ def print_remdet_comparison(
     report.append(f"  {'-'*20} {'-'*15} {'-'*15} {'-'*20} {'-'*10}")
     report.append(f"  {'mAP@0.5':<20} {map50:>14.2f}% {remdet_map50:>14.1f}% {gap_map50:>+14.2f}% ({gap_map50/remdet_map50*100:>+5.1f}%) {'✅' if gap_map50 >= 0 else '❌'}")
     report.append(f"  {'mAP@0.75':<20} {map75:>14.2f}% {remdet_map75:>14.1f}% {gap_map75:>+14.2f}% ({gap_map75/remdet_map75*100:>+5.1f}%) {'✅' if gap_map75 >= 0 else '❌'}")
-    report.append(f"  {'mAP@0.5:0.95':<20} {map50_95:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
+    report.append(f"  {'mAP@0.5:0.95':<20} {map50_95:>14.2f}% {remdet_map95:>14.1f}% {gap_map95:>+14.2f}% ({gap_map95/remdet_map95*100:>+5.1f}%) {'✅' if gap_map95 >= 0 else '❌'}")
     report.append(f"  {'Precision':<20} {precision:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
     report.append(f"  {'Recall':<20} {recall:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
     
@@ -489,9 +498,9 @@ def print_remdet_comparison(
         report.append(f"  {'-'*20} {'-'*15} {'-'*15} {'-'*20} {'-'*10}")
         # ✅ 恢复: 所有值都是百分比,用 {:.2f}% 格式化
         report.append(f"  {'Small (<32×32)':<20} {map50_small:>14.2f}% {remdet_small:>14.1f}% {gap_small:>+14.2f}% ({gap_small/remdet_small*100:>+5.1f}%) {'✅' if gap_small >= 0 else '❌'}")
-        report.append(f"  {'Medium (32~96)':<20} {map50_medium:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
-        report.append(f"  {'Large (>96×96)':<20} {map50_large:>14.2f}% {'N/A':<15} {'N/A':<20} {'':<10}")
-    
+        report.append(f"  {'Medium (32~96)':<20} {map50_medium:>14.2f}% {remdet_medium:>14.1f}% {gap_medium:>+14.2f}% ({gap_medium/remdet_medium*100:>+5.1f}%) {'✅' if gap_medium >= 0 else '❌'}")
+        report.append(f"  {'Large (>96×96)':<20} {map50_large:>14.2f}% {remdet_large:>14.1f}% {gap_large:>+14.2f}% ({gap_large/remdet_large*100:>+5.1f}%) {'✅' if gap_large >= 0 else '❌'}")
+
     # 效率指标对比
     report.append("\n⚡ Efficiency Metrics:")
     report.append(f"  {'Metric':<20} {'Our Model':<15} {'RemDet-X':<15} {'Gap':<20} {'Status':<10}")
