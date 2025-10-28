@@ -38,6 +38,8 @@ from ultralytics.nn.modules import (
     C3x,
     CBFuse,
     CBLinear,
+    ChannelAttention,  # 🆕 Phase 3: Channel attention mechanism
+    ChannelC2f,  # 🆕 Phase 3: C2f with channel attention
     Classify,
     Concat,
     Conv,

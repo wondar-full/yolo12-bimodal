@@ -121,6 +121,8 @@ def main():
     
     # File paths
     block_py = "ultralytics/nn/modules/block.py"
+    init_py = "ultralytics/nn/modules/__init__.py"
+    tasks_py = "ultralytics/nn/tasks.py"
     yaml_cfg = "ultralytics/cfg/models/12/yolo12s-rgbd-channelc2f.yaml"
     
     all_passed = True
@@ -129,7 +131,7 @@ def main():
     # Check 1: block.py exists
     # ================================================================
     
-    print_check(1, 6, "Checking block.py file...")
+    print_check(1, 8, "Checking block.py file...")
     
     if check_file_exists(block_py):
         print_success(f"{block_py} exists")
@@ -141,7 +143,7 @@ def main():
     # Check 2: ChannelAttention class
     # ================================================================
     
-    print_check(2, 6, "Checking ChannelAttention class...")
+    print_check(2, 8, "Checking ChannelAttention class...")
     
     if check_class_exists(block_py, "ChannelAttention"):
         print_success("ChannelAttention class found")
@@ -167,7 +169,7 @@ def main():
     # Check 3: ChannelC2f class
     # ================================================================
     
-    print_check(3, 6, "Checking ChannelC2f class...")
+    print_check(3, 8, "Checking ChannelC2f class...")
     
     if check_class_exists(block_py, "ChannelC2f"):
         print_success("ChannelC2f class found")
@@ -211,10 +213,10 @@ def main():
         all_passed = False
     
     # ================================================================
-    # Check 4: __all__ exports
+    # Check 4: __all__ exports in block.py
     # ================================================================
     
-    print_check(4, 6, "Checking __all__ exports...")
+    print_check(4, 8, "Checking __all__ exports in block.py...")
     
     if check_in_all_exports(block_py, "ChannelAttention"):
         print_success("ChannelAttention in __all__")
@@ -229,10 +231,69 @@ def main():
         all_passed = False
     
     # ================================================================
-    # Check 5: YAML configuration
+    # Check 5: __init__.py exports (CRITICAL!)
     # ================================================================
     
-    print_check(5, 6, "Checking YAML configuration...")
+    print_check(5, 8, "Checking modules/__init__.py exports...")
+    
+    if check_file_exists(init_py):
+        print_success(f"{init_py} exists")
+        
+        with open(init_py, 'r', encoding='utf-8') as f:
+            init_content = f.read()
+        
+        # Check imports from block
+        if "ChannelC2f" in init_content and "from .block import" in init_content:
+            print_success("__init__.py imports ChannelC2f from block ⭐")
+        else:
+            print_error("__init__.py does NOT import ChannelC2f!")
+            print_error("This will cause ImportError in tasks.py!")
+            all_passed = False
+        
+        # Check __all__ exports
+        if '"ChannelC2f"' in init_content or "'ChannelC2f'" in init_content:
+            print_success("ChannelC2f in __init__.py __all__ ⭐")
+        else:
+            print_error("ChannelC2f NOT in __init__.py __all__!")
+            all_passed = False
+    else:
+        print_error(f"{init_py} NOT found!")
+        all_passed = False
+    
+    # ================================================================
+    # Check 6: tasks.py imports (CRITICAL!)
+    # ================================================================
+    
+    print_check(6, 8, "Checking tasks.py imports...")
+    
+    if check_file_exists(tasks_py):
+        print_success(f"{tasks_py} exists")
+        
+        with open(tasks_py, 'r', encoding='utf-8') as f:
+            tasks_content = f.read()
+        
+        if "ChannelAttention" in tasks_content:
+            print_success("tasks.py imports ChannelAttention ⭐")
+        else:
+            print_error("tasks.py does NOT import ChannelAttention!")
+            print_error("This will cause KeyError when building model!")
+            all_passed = False
+        
+        if "ChannelC2f" in tasks_content:
+            print_success("tasks.py imports ChannelC2f ⭐")
+        else:
+            print_error("tasks.py does NOT import ChannelC2f!")
+            print_error("This will cause KeyError when building model!")
+            all_passed = False
+    else:
+        print_error(f"{tasks_py} NOT found!")
+        all_passed = False
+    
+    # ================================================================
+    # Check 7: YAML configuration
+    # ================================================================
+    
+    print_check(7, 8, "Checking YAML configuration...")
     
     if check_file_exists(yaml_cfg):
         print_success(f"{yaml_cfg} exists")
@@ -259,10 +320,10 @@ def main():
         all_passed = False
     
     # ================================================================
-    # Check 6: Import test
+    # Check 8: Import test
     # ================================================================
     
-    print_check(6, 6, "Testing Python import...")
+    print_check(8, 8, "Testing Python import...")
     
     try:
         # Add parent directory to path

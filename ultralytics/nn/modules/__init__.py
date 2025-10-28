@@ -46,6 +46,7 @@ from .block import (
     C3x,
     CBFuse,
     CBLinear,
+    ChannelC2f,  # 🆕 Phase 3: C2f with channel attention
     ContrastiveHead,
     GhostBottleneck,
     HGBlock,
@@ -144,6 +145,7 @@ __all__ = (
     "CBFuse",
     "CBLinear",
     "ChannelAttention",
+    "ChannelC2f",  # 🆕 Phase 3: C2f with channel attention
     "Classify",
     "Concat",
     "ContrastiveHead",
