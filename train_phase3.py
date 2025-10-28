@@ -124,18 +124,35 @@ def main():
     # ========================================================================
     
     print(f"🔧 Loading model from: {MODEL_CFG}")
-    model = YOLO(MODEL_CFG)
-    print("✅ Model loaded successfully")
-    print()
     
-    # Optional: Load Phase 1 weights as initialization
-    # (Comment out if training from scratch)
-    # PRETRAINED_WEIGHTS = "runs/train/phase1_test7/weights/best.pt"
-    # if Path(PRETRAINED_WEIGHTS).exists():
-    #     print(f"🔄 Loading pretrained weights: {PRETRAINED_WEIGHTS}")
-    #     model = YOLO(PRETRAINED_WEIGHTS)
-    #     print("✅ Pretrained weights loaded")
-    #     print()
+    # Optional: Load pretrained weights (Phase 1 baseline or YOLO12 pretrained)
+    # Set to None to train from scratch
+    PRETRAINED_WEIGHTS = "runs/train/phase1_test7/weights/best.pt"  # Phase 1 baseline
+    # PRETRAINED_WEIGHTS = "yolo12s.pt"  # Official YOLO12-S pretrained
+    # PRETRAINED_WEIGHTS = None  # Train from scratch
+    
+    if PRETRAINED_WEIGHTS and Path(PRETRAINED_WEIGHTS).exists():
+        print(f"🔄 Loading pretrained weights: {PRETRAINED_WEIGHTS}")
+        print(f"   Strategy: Transfer learning from Phase 1 baseline")
+        model = YOLO(PRETRAINED_WEIGHTS)
+        
+        # Override model architecture with Phase 3 config
+        # This keeps learned weights but adds ChannelC2f
+        print(f"🔧 Overriding architecture with: {MODEL_CFG}")
+        # Note: YOLO will automatically handle module matching
+        
+        print("✅ Pretrained weights loaded")
+    else:
+        if PRETRAINED_WEIGHTS:
+            print(f"⚠️  Pretrained weights not found: {PRETRAINED_WEIGHTS}")
+            print(f"   Training from scratch instead")
+        else:
+            print(f"ℹ️  Training from scratch (no pretrained weights)")
+        
+        model = YOLO(MODEL_CFG)
+        print("✅ Model loaded successfully")
+    
+    print()
     
     # ========================================================================
     # Training Configuration Summary

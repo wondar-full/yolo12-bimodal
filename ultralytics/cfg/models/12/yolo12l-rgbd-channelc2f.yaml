@@ -1,8 +1,8 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 License
-# YOLO12-S RGB-D ChannelC2f - Phase 3: Enhanced Medium-Scale Detection
+# YOLO12-L RGB-D ChannelC2f - Phase 3: Enhanced Medium-Scale Detection
 # Created: 2025-10-28 for yoloDepth Phase 3
 # Objective: Solve Medium mAP crisis (14.28% → target 20%+)
-# Scale: Small (轻量, 对标 RemDet-S)
+# Scale: Large (高精度, 对标 RemDet-L)
 
 # ================================================================================================
 # Phase 3 Background
@@ -102,22 +102,22 @@ head:
   - [[14, 17, 20], 1, Detect, [nc]]  # 21 - Detect(P3, P4, P5)
 
 # ================================================================================================
-# Model Summary (Expected - YOLO12-S Phase 3)
+# Model Summary (Expected - YOLO12-L Phase 3)
 # ================================================================================================
-# Parameters: ~9.5M (+1.4% vs Phase 1)
-# FLOPs: ~20G (+0.5% vs Phase 1)
-# Pretrained: yolo12s.pt (optional)
+# Parameters: ~40M (+1.4% vs Phase 1)
+# FLOPs: ~80G (+0.5% vs Phase 1)
+# Pretrained: yolo12l.pt (optional)
 #
 # RemDet Comparison Target:
-#   - RemDet-S: See AAAI2025 paper Table 1
+#   - RemDet-L: See AAAI2025 paper Table 1
 #   - Goal: Match or exceed RemDet performance on VisDrone
 #
 # Training Command:
 #   python train_phase3.py \
-#     --model ultralytics/cfg/models/12/yolo12s-rgbd-channelc2f.yaml \
+#     --model ultralytics/cfg/models/12/yolo12l-rgbd-channelc2f.yaml \
 #     --data data/visdrone-rgbd.yaml \
 #     --epochs 150 \
 #     --batch 16 \
-#     --name phase3_channelc2f_s
+#     --name phase3_channelc2f_l
 #
 # ================================================================================================
