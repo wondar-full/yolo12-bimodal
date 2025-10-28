@@ -63,14 +63,15 @@ backbone:
   - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
 
   # ⭐ Phase 3: Replace A2C2f with ChannelC2f
-  # Args: [c2, n, shortcut, g, e, reduction]
+  # Args format in YAML: [c2, shortcut, g, e, reduction]
+  #   Note: c1 and n are auto-inserted by parse_model()!
   #   c2=512: Output channels
-  #   n=4: Number of Bottleneck blocks (repeat count, same as A2C2f)
   #   shortcut=True: Use residual connections in Bottleneck
   #   g=1: Groups (standard convolution)
   #   e=0.5: Expansion ratio (hidden channels = 512*0.5=256)
   #   reduction=16: Channel attention reduction ratio (512/16=32 bottleneck)
-  - [-1, 1, ChannelC2f, [512, 4, True, 1, 0.5, 16]] # 6-P4/16 ⭐ (Phase 3改进)
+  # Final call: ChannelC2f(c1=512, c2=512, n=4, shortcut=True, g=1, e=0.5, reduction=16)
+  - [-1, 4, ChannelC2f, [512, True, 1, 0.5, 16]] # 6-P4/16 ⭐ (Phase 3改进)
 
   # Layer 7-8: P5 Path (Large detection - unchanged)
   - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
