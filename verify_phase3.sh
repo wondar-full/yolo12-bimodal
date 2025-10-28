@@ -33,15 +33,20 @@ fi
 
 # Check 3: Forward method implementation
 echo -e "\n${YELLOW}[3/5] Checking ChannelC2f forward method...${NC}"
-if grep -A 10 "class ChannelC2f" ultralytics/nn/modules/block.py | grep -q "def forward"; then
+
+# Extract the entire ChannelC2f class (from class definition to next class)
+channelc2f_class=$(sed -n '/^class ChannelC2f/,/^class /p' ultralytics/nn/modules/block.py)
+
+# Check if forward method exists
+if echo "$channelc2f_class" | grep -q "def forward"; then
     echo -e "${GREEN}  ✅ Forward method found${NC}"
     
-    # Check if forward is not empty
-    forward_lines=$(sed -n '/class ChannelC2f/,/^class /p' ultralytics/nn/modules/block.py | grep -c "self.ca(x)")
-    if [ $forward_lines -gt 0 ]; then
+    # Check if forward method contains self.ca(x) - the key Phase 3 addition
+    if echo "$channelc2f_class" | grep -q "self.ca(x)"; then
         echo -e "${GREEN}  ✅ Forward method contains self.ca(x) - implementation complete${NC}"
     else
         echo -e "${RED}  ❌ Forward method is empty or incomplete!${NC}"
+        echo -e "${RED}     Missing: self.ca(x) call${NC}"
         exit 1
     fi
 else
