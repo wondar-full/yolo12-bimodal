@@ -354,6 +354,17 @@ class DetectionValidator(BaseValidator):
             
             # GT框尺寸分类
             gt_areas = batch["target_areas"]  # (N_gt,) - 已经在_prepare_batch中过滤
+            
+            # 🔍 Debug: 打印GT面积分布
+            if not hasattr(self, '_gt_areas_debug_printed'):
+                LOGGER.info(f"\n🔍 GT Areas Debug (First Batch):")
+                LOGGER.info(f"  GT areas: min={gt_areas.min().item():.1f}, max={gt_areas.max().item():.1f}, mean={gt_areas.mean().item():.1f}")
+                LOGGER.info(f"  Threshold: small<{small_thresh}, medium<{medium_thresh}")
+                # 打印前10个面积样本
+                sample_areas = gt_areas[:10].cpu().numpy() if len(gt_areas) > 10 else gt_areas.cpu().numpy()
+                LOGGER.info(f"  Sample areas (first 10): {sample_areas}")
+                self._gt_areas_debug_printed = True
+            
             gt_small_mask = gt_areas < small_thresh
             gt_medium_mask = (gt_areas >= small_thresh) & (gt_areas < medium_thresh)
             gt_large_mask = gt_areas >= medium_thresh
@@ -362,9 +373,28 @@ class DetectionValidator(BaseValidator):
             # 🔧 Bug Fix: 从pbatch获取图像尺寸,将归一化面积转换为像素面积
             img_h, img_w = batch["imgsz"]  # 从pbatch获取,通常是(640, 640)
             
+            # 🔍 Debug: 打印图像尺寸和bbox范围
+            if not hasattr(self, '_imgsz_debug_printed'):
+                LOGGER.info(f"\n🔍 Image Size Debug:")
+                LOGGER.info(f"  batch['imgsz'] = {batch['imgsz']} (type: {type(batch['imgsz'])})")
+                LOGGER.info(f"  img_h={img_h}, img_w={img_w}")
+                LOGGER.info(f"  GT bboxes range: {batch['bboxes'].min().item():.3f} ~ {batch['bboxes'].max().item():.3f}")
+                LOGGER.info(f"  Pred bboxes range: {preds['bboxes'].min().item():.3f} ~ {preds['bboxes'].max().item():.3f}")
+                self._imgsz_debug_printed = True
+            
             pred_widths = (preds["bboxes"][:, 2] - preds["bboxes"][:, 0]) * img_w  # 转换为像素
             pred_heights = (preds["bboxes"][:, 3] - preds["bboxes"][:, 1]) * img_h  # 转换为像素
             pred_areas = pred_widths * pred_heights  # 像素面积
+            
+            # 🔍 Debug: 打印Pred面积分布
+            if not hasattr(self, '_pred_areas_debug_printed'):
+                LOGGER.info(f"\n🔍 Pred Areas Debug (First Batch):")
+                LOGGER.info(f"  Pred areas: min={pred_areas.min().item():.1f}, max={pred_areas.max().item():.1f}, mean={pred_areas.mean().item():.1f}")
+                # 打印前10个面积样本
+                sample_pred_areas = pred_areas[:10].cpu().numpy() if len(pred_areas) > 10 else pred_areas.cpu().numpy()
+                LOGGER.info(f"  Sample pred areas (first 10): {sample_pred_areas}")
+                self._pred_areas_debug_printed = True
+            
             pred_small_mask = pred_areas < small_thresh  # 1024 pixels²
             pred_medium_mask = (pred_areas >= small_thresh) & (pred_areas < medium_thresh)  # 1024~9216
             pred_large_mask = pred_areas >= medium_thresh  # >=9216

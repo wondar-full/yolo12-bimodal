@@ -19,8 +19,8 @@ def test_metrics_initialization():
     print("测试 1: DetMetricsVisDrone 初始化")
     print("=" * 70)
     
-    # 创建 metrics 对象
-    metrics = DetMetricsVisDrone(save_dir=".", plot=False, visdrone_mode=True)
+    # 创建 metrics 对象 (DetMetricsVisDrone 不接受 save_dir/plot 参数)
+    metrics = DetMetricsVisDrone(visdrone_mode=True)
     
     print(f"✅ visdrone_mode: {metrics.visdrone_mode}")
     print(f"✅ small_area_thresh: {metrics.small_area_thresh}")
@@ -93,7 +93,7 @@ def test_process_method(metrics):
     
     # 调用 process (应该打印分尺度 mAP)
     print("\n🔍 调用 metrics.process()...\n")
-    stats = metrics.process(save_dir=Path("."), plot=False)
+    stats = metrics.process()
     
     print(f"\n✅ process() 返回: {type(stats)}")
     print(f"✅ box_small.map50: {metrics.box_small.map50:.4f}")
