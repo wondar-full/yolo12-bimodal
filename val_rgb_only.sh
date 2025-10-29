@@ -1,6 +1,6 @@
 #!/bin/bash
 # Validation script for RGB-only models (e.g., official YOLO12x pretrained)
-# 验证 RGB-only 模型 (如官方预训练的 YOLO12x)
+# 验证 RGB-only 模型 (如官方预训练的 YOLO12x)s
 
 MODEL=${1:-"models/yolo12x.pt"}
 DATA=${2:-"data/visdrone-rgb-only.yaml"}  # 🆕 使用 RGB-only 配置
