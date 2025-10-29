@@ -370,20 +370,11 @@ class DetectionValidator(BaseValidator):
             gt_large_mask = gt_areas >= medium_thresh
             
             # Pred框尺寸分类 (根据预测框自己的面积)
-            # 🔧 Bug Fix: 从pbatch获取图像尺寸,将归一化面积转换为像素面积
-            img_h, img_w = batch["imgsz"]  # 从pbatch获取,通常是(640, 640)
+            # 🔧 Bug Fix: preds["bboxes"] 在 _prepare_batch 中已经转换为像素坐标
+            # 不需要再乘以 img_w/img_h,直接计算面积即可
             
-            # 🔍 Debug: 打印图像尺寸和bbox范围
-            if not hasattr(self, '_imgsz_debug_printed'):
-                LOGGER.info(f"\n🔍 Image Size Debug:")
-                LOGGER.info(f"  batch['imgsz'] = {batch['imgsz']} (type: {type(batch['imgsz'])})")
-                LOGGER.info(f"  img_h={img_h}, img_w={img_w}")
-                LOGGER.info(f"  GT bboxes range: {batch['bboxes'].min().item():.3f} ~ {batch['bboxes'].max().item():.3f}")
-                LOGGER.info(f"  Pred bboxes range: {preds['bboxes'].min().item():.3f} ~ {preds['bboxes'].max().item():.3f}")
-                self._imgsz_debug_printed = True
-            
-            pred_widths = (preds["bboxes"][:, 2] - preds["bboxes"][:, 0]) * img_w  # 转换为像素
-            pred_heights = (preds["bboxes"][:, 3] - preds["bboxes"][:, 1]) * img_h  # 转换为像素
+            pred_widths = preds["bboxes"][:, 2] - preds["bboxes"][:, 0]  # 已经是像素宽度
+            pred_heights = preds["bboxes"][:, 3] - preds["bboxes"][:, 1]  # 已经是像素高度
             pred_areas = pred_widths * pred_heights  # 像素面积
             
             # 🔍 Debug: 打印Pred面积分布
