@@ -1,0 +1,33 @@
+# VisDrone Dataset Configuration (RGB-only, no depth)
+# 用于验证官方预训练的 RGB-only 模型 (如 YOLO12x)
+
+# Dataset root
+path: /data2/user/2024/lzy/Datasets/VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val
+
+# RGB images only (no depth)
+train: images/rgb # Not used in validation
+val: images/rgb
+
+# Class names (10 classes)
+names:
+  0: pedestrian
+  1: people
+  2: bicycle
+  3: car
+  4: van
+  5: truck
+  6: tricycle
+  7: awning-tricycle
+  8: bus
+  9: motor
+
+# Number of classes
+nc: 10
+
+# VisDrone-specific settings
+visdrone_mode: true
+small_thresh: 1024 # <32×32
+medium_thresh: 9216 # 32×32 ~ 96×96
+
+# Note: No 'train_depth' or 'val_depth' fields
+# This ensures the dataset loader will NOT attempt to load depth images
