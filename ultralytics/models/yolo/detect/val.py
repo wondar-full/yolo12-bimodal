@@ -359,12 +359,16 @@ class DetectionValidator(BaseValidator):
             gt_large_mask = gt_areas >= medium_thresh
             
             # Pred框尺寸分类 (根据预测框自己的面积)
-            pred_widths = preds["bboxes"][:, 2] - preds["bboxes"][:, 0]
-            pred_heights = preds["bboxes"][:, 3] - preds["bboxes"][:, 1]
-            pred_areas = pred_widths * pred_heights
-            pred_small_mask = pred_areas < small_thresh
-            pred_medium_mask = (pred_areas >= small_thresh) & (pred_areas < medium_thresh)
-            pred_large_mask = pred_areas >= medium_thresh
+            # 🔧 Bug Fix: 获取图像尺寸,将归一化面积转换为像素面积
+            img_shape = batch["img"].shape  # [B, C, H, W]
+            img_h, img_w = img_shape[2], img_shape[3]  # 通常是640×640
+            
+            pred_widths = (preds["bboxes"][:, 2] - preds["bboxes"][:, 0]) * img_w  # 转换为像素
+            pred_heights = (preds["bboxes"][:, 3] - preds["bboxes"][:, 1]) * img_h  # 转换为像素
+            pred_areas = pred_widths * pred_heights  # 像素面积
+            pred_small_mask = pred_areas < small_thresh  # 1024 pixels²
+            pred_medium_mask = (pred_areas >= small_thresh) & (pred_areas < medium_thresh)  # 1024~9216
+            pred_large_mask = pred_areas >= medium_thresh  # >=9216
             
             # 计算分尺度TP (重新匹配)
             def _calc_size_tp(gt_mask, pred_mask):

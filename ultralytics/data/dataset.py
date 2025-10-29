@@ -287,9 +287,15 @@ class YOLODataset(BaseDataset):
                 widths = np.zeros(len(bboxes))
                 heights = np.zeros(len(bboxes))
             
-            # 如果是归一化坐标,需要乘以图像尺寸才能得到像素面积
+            # 🔧 Bug Fix: 如果是归一化坐标,需要乘以图像尺寸才能得到像素面积
             if normalized:
-                img_h, img_w = label.get("ori_shape", label.get("resized_shape", (640, 640)))[:2]
+                # 优先使用resized_shape (验证时bbox是相对于resize后的尺寸,而非原始尺寸)
+                img_h, img_w = label.get("resized_shape", (640, 640))[:2]
+                
+                # 如果resized_shape不存在,尝试从img获取实际尺寸
+                if "img" in label and label["img"] is not None:
+                    img_h, img_w = label["img"].shape[:2]
+                
                 widths = widths * img_w
                 heights = heights * img_h
             
