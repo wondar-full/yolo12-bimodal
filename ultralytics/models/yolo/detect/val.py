@@ -446,7 +446,6 @@ class DetectionValidator(BaseValidator):
                 n_pred_medium = pred_medium_mask.sum().item()
                 n_pred_large = pred_large_mask.sum().item()
                 
-                from ultralytics.utils import LOGGER
                 LOGGER.info(f"\n🔍 Size-wise Statistics (First Batch):")
                 LOGGER.info(f"  GT:   Small={n_gt_small:>4}, Medium={n_gt_medium:>4}, Large={n_gt_large:>4}")
                 LOGGER.info(f"  Pred: Small={n_pred_small:>4}, Medium={n_pred_medium:>4}, Large={n_pred_large:>4}")
