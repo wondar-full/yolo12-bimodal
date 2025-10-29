@@ -407,6 +407,22 @@ class DetectionValidator(BaseValidator):
             tp_medium, cls_medium, conf_medium, pred_medium = _calc_size_tp(gt_medium_mask, pred_medium_mask)
             tp_large, cls_large, conf_large, pred_large = _calc_size_tp(gt_large_mask, pred_large_mask)
             
+            # 🔍 Debug: 打印每个尺度的目标数量 (仅在首batch打印,避免刷屏)
+            if not hasattr(self, '_size_debug_printed'):
+                n_gt_small = gt_small_mask.sum().item()
+                n_gt_medium = gt_medium_mask.sum().item()
+                n_gt_large = gt_large_mask.sum().item()
+                n_pred_small = pred_small_mask.sum().item()
+                n_pred_medium = pred_medium_mask.sum().item()
+                n_pred_large = pred_large_mask.sum().item()
+                
+                from ultralytics.utils import LOGGER
+                LOGGER.info(f"\n🔍 Size-wise Statistics (First Batch):")
+                LOGGER.info(f"  GT:   Small={n_gt_small:>4}, Medium={n_gt_medium:>4}, Large={n_gt_large:>4}")
+                LOGGER.info(f"  Pred: Small={n_pred_small:>4}, Medium={n_pred_medium:>4}, Large={n_pred_large:>4}")
+                LOGGER.info(f"  TP:   Small={tp_small.shape[0]:>4}, Medium={tp_medium.shape[0]:>4}, Large={tp_large.shape[0]:>4}\n")
+                self._size_debug_printed = True
+            
             result.update({
                 "tp_small": tp_small,
                 "tp_medium": tp_medium,
