@@ -359,9 +359,8 @@ class DetectionValidator(BaseValidator):
             gt_large_mask = gt_areas >= medium_thresh
             
             # Pred框尺寸分类 (根据预测框自己的面积)
-            # 🔧 Bug Fix: 获取图像尺寸,将归一化面积转换为像素面积
-            img_shape = batch["img"].shape  # [B, C, H, W]
-            img_h, img_w = img_shape[2], img_shape[3]  # 通常是640×640
+            # 🔧 Bug Fix: 从pbatch获取图像尺寸,将归一化面积转换为像素面积
+            img_h, img_w = batch["imgsz"]  # 从pbatch获取,通常是(640, 640)
             
             pred_widths = (preds["bboxes"][:, 2] - preds["bboxes"][:, 0]) * img_w  # 转换为像素
             pred_heights = (preds["bboxes"][:, 3] - preds["bboxes"][:, 1]) * img_h  # 转换为像素
