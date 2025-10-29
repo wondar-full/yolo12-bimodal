@@ -51,12 +51,12 @@ def main():
     # ========================================================================
     
     # Model & Data
-    MODEL_CFG = "ultralytics/cfg/models/12/yolo12s-rgbd-channelc2f.yaml"
+    MODEL_CFG = "ultralytics/cfg/models/12/yolo12n-rgbd-channelc2f.yaml"
     DATA_CFG = "data/visdrone-rgbd.yaml"
     
     # Training Settings (aligned with Phase 1 for fair comparison)
-    EPOCHS = 150
-    BATCH_SIZE = 16
+    EPOCHS = 300
+    BATCH_SIZE = 8
     IMGSZ = 640
     DEVICE = 0  # GPU 0
     WORKERS = 8
@@ -127,7 +127,7 @@ def main():
     
     # Optional: Load pretrained weights (Phase 1 baseline or YOLO12 pretrained)
     # Set to None to train from scratch
-    PRETRAINED_WEIGHTS = "runs/train/phase1_test7/weights/best.pt"  # Phase 1 baseline
+    PRETRAINED_WEIGHTS = "yolo12-bimodal/models/yolo12n.pt"
     # PRETRAINED_WEIGHTS = "yolo12s.pt"  # Official YOLO12-S pretrained
     # PRETRAINED_WEIGHTS = None  # Train from scratch
     

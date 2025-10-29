@@ -1,1 +1,1 @@
-python val_visdrone.py --model /data2/user/2024/lzy/yolo12-bimodal/runs/train/phase1_test7/weights/best.pt
+python val_visdrone.py --model /data2/user/2024/lzy/yolo12-bimodal/runs/train/phase3_channelc2f7/weights/best.pt
