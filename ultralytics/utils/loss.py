@@ -288,8 +288,12 @@ class v8DetectionLoss:
         size_weights = torch.ones_like(target_scores)
         if fg_mask.sum() > 0:
             # 计算GT bbox面积 (已经是xyxy格式,单位是grid cells)
-            gt_widths = (target_bboxes[:, :, 2] - target_bboxes[:, :, 0]) * stride_tensor[:, :, 0]
-            gt_heights = (target_bboxes[:, :, 3] - target_bboxes[:, :, 1]) * stride_tensor[:, :, 1]
+            # target_bboxes: (bs, num_anchors, 4), stride_tensor: (num_anchors, 1)
+            # 需要转置stride_tensor以便广播: (1, num_anchors, 1)
+            stride_broadcast = stride_tensor.unsqueeze(0)  # (1, num_anchors, 1)
+            
+            gt_widths = (target_bboxes[:, :, 2] - target_bboxes[:, :, 0]) * stride_broadcast.squeeze(-1)
+            gt_heights = (target_bboxes[:, :, 3] - target_bboxes[:, :, 1]) * stride_broadcast.squeeze(-1)
             gt_areas = gt_widths * gt_heights  # 面积(pixels²)
             
             # COCO标准阈值: Small(<32²=1024), Medium(32²~96²=9216), Large(≥96²)
