@@ -50,18 +50,20 @@ echo "🏃 开始训练..."
 echo "========================================"
 echo ""
 
+# 创建输出目录(如果不存在)
+mkdir -p ${PROJECT}/${NAME}
+
 # 启动训练
 CUDA_VISIBLE_DEVICES=${DEVICE} python train_depth.py \
     --data ${DATA_YAML} \
     --epochs ${EPOCHS} \
     --batch ${BATCH_SIZE} \
-    --img ${IMG_SIZE} \
+    --imgsz ${IMG_SIZE} \
     --device 0 \
     --project ${PROJECT} \
     --name ${NAME} \
     --weights ${WEIGHTS} \
-    --cache \
-    --save-period 50 \
+    --save_period 50 \
     --patience 100 \
     --workers 8 \
     2>&1 | tee ${PROJECT}/${NAME}/training.log
