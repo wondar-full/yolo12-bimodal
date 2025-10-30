@@ -28,8 +28,9 @@ print("=" * 60)
 print("🔧 测试Size-Adaptive权重计算")
 print("=" * 60)
 
-size_weights = torch.ones_like(target_scores)
-print(f"初始 size_weights: {size_weights.shape}")
+num_classes = 10
+area_weights = torch.ones(batch_size, num_anchors)
+print(f"初始 area_weights: {area_weights.shape}")
 
 if fg_mask.sum() > 0:
     # 修复后的广播逻辑
@@ -46,8 +47,8 @@ if fg_mask.sum() > 0:
     gt_areas = gt_widths * gt_heights
     print(f"gt_areas:   {gt_areas.shape}")
     
-    # 分配权重
-    size_weights = torch.where(
+    # 分配权重 (注意: area_weights现在是 (bs, num_anchors))
+    area_weights = torch.where(
         gt_areas < 1024,
         torch.tensor(2.0),
         torch.where(
@@ -56,23 +57,45 @@ if fg_mask.sum() > 0:
             torch.tensor(1.0)
         )
     )
-    print(f"条件权重 size_weights: {size_weights.shape}")
+    print(f"条件权重 area_weights: {area_weights.shape}")
     
     # 应用fg_mask
-    size_weights = size_weights * fg_mask.float()
-    print(f"最终 size_weights: {size_weights.shape}")
+    area_weights = area_weights * fg_mask.float()
+    print(f"fg_mask后 area_weights: {area_weights.shape}")
+    
+    # 扩展到匹配target_scores形状
+    size_weights = area_weights.unsqueeze(-1).expand(batch_size, num_anchors, num_classes)
+    print(f"扩展后 size_weights: {size_weights.shape}")
+    print(f"target_scores形状: {target_scores.shape}")
+    print(f"✅ 形状匹配成功!" if size_weights.shape == target_scores.shape else "❌ 形状不匹配!")
     
     # 验证权重分布
     print()
     print("=" * 60)
     print("📈 权重统计")
     print("=" * 60)
-    valid_weights = size_weights[fg_mask]
+    valid_area_weights = area_weights[fg_mask]
     print(f"正样本数量: {fg_mask.sum().item()}")
-    print(f"权重×2.0数量: {(valid_weights == 2.0).sum().item()}")
-    print(f"权重×1.5数量: {(valid_weights == 1.5).sum().item()}")
-    print(f"权重×1.0数量: {(valid_weights == 1.0).sum().item()}")
-    print(f"权重范围: [{valid_weights.min().item():.1f}, {valid_weights.max().item():.1f}]")
+    print(f"权重×2.0数量: {(valid_area_weights == 2.0).sum().item()}")
+    print(f"权重×1.5数量: {(valid_area_weights == 1.5).sum().item()}")
+    print(f"权重×1.0数量: {(valid_area_weights == 1.0).sum().item()}")
+    print(f"权重范围: [{valid_area_weights.min().item():.1f}, {valid_area_weights.max().item():.1f}]")
+    
+    # 验证cls_loss计算
+    print()
+    print("=" * 60)
+    print("🧮 验证Loss计算")
+    print("=" * 60)
+    cls_loss_per_sample = torch.randn_like(target_scores)
+    print(f"cls_loss_per_sample: {cls_loss_per_sample.shape}")
+    weighted_cls_loss = cls_loss_per_sample * size_weights
+    print(f"weighted_cls_loss:   {weighted_cls_loss.shape}")
+    print(f"✅ 可以正常相乘!" if weighted_cls_loss.shape == cls_loss_per_sample.shape else "❌ 相乘失败!")
+    
+    # 验证box_loss权重
+    avg_area_weight = area_weights[fg_mask].mean()
+    print(f"avg_area_weight:     {avg_area_weight.item():.3f} (标量)")
+    print(f"✅ 可以用于box_loss缩放!")
 
 print()
 print("=" * 60)

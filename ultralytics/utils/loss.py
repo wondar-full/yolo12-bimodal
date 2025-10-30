@@ -285,20 +285,21 @@ class v8DetectionLoss:
         # 🎯 Size-Adaptive Loss Weighting (Small目标优化)
         # 计算GT目标尺寸并分配权重: Small×2.0, Medium×1.5, Large×1.0
         # =====================================================================
-        size_weights = torch.ones_like(target_scores)
+        # 计算每个anchor对应GT的尺寸权重 (形状: bs, num_anchors)
+        area_weights = torch.ones(batch_size, anchor_points.shape[0], device=self.device, dtype=dtype)
+        
         if fg_mask.sum() > 0:
             # 计算GT bbox面积 (已经是xyxy格式,单位是grid cells)
             # target_bboxes: (bs, num_anchors, 4), stride_tensor: (num_anchors, 1)
-            # 需要转置stride_tensor以便广播: (1, num_anchors, 1)
             stride_broadcast = stride_tensor.unsqueeze(0)  # (1, num_anchors, 1)
             
             gt_widths = (target_bboxes[:, :, 2] - target_bboxes[:, :, 0]) * stride_broadcast.squeeze(-1)
             gt_heights = (target_bboxes[:, :, 3] - target_bboxes[:, :, 1]) * stride_broadcast.squeeze(-1)
-            gt_areas = gt_widths * gt_heights  # 面积(pixels²)
+            gt_areas = gt_widths * gt_heights  # 面积(pixels²), shape: (bs, num_anchors)
             
             # COCO标准阈值: Small(<32²=1024), Medium(32²~96²=9216), Large(≥96²)
             # 权重分配: Small×2.0 (强化), Medium×1.5, Large×1.0
-            size_weights = torch.where(
+            area_weights = torch.where(
                 gt_areas < 1024, 
                 torch.tensor(2.0, device=self.device, dtype=dtype),  # Small目标×2.0
                 torch.where(
@@ -309,7 +310,10 @@ class v8DetectionLoss:
             )
             
             # 仅对正样本(fg_mask=True)应用权重
-            size_weights = size_weights * fg_mask.float()
+            area_weights = area_weights * fg_mask.float()
+        
+        # 扩展area_weights以匹配target_scores的形状: (bs, num_anchors) → (bs, num_anchors, num_classes)
+        size_weights = area_weights.unsqueeze(-1).expand_as(target_scores)
         # =====================================================================
 
         # Cls loss (应用尺寸权重)
@@ -330,11 +334,10 @@ class v8DetectionLoss:
             )
             
             # 应用尺寸权重到box和dfl loss
-            # bbox_loss返回的是标量,需要在bbox_loss内部或这里应用权重
-            # 这里我们用全局平均权重作为近似
-            avg_size_weight = size_weights.sum() / max(fg_mask.sum(), 1)
-            loss[0] = box_loss * avg_size_weight
-            loss[2] = dfl_loss * avg_size_weight
+            # 使用area_weights (bs, num_anchors) 计算正样本的平均权重
+            avg_area_weight = area_weights[fg_mask].mean() if fg_mask.sum() > 0 else 1.0
+            loss[0] = box_loss * avg_area_weight
+            loss[2] = dfl_loss * avg_area_weight
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
