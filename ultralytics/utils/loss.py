@@ -281,13 +281,41 @@ class v8DetectionLoss:
 
         target_scores_sum = max(target_scores.sum(), 1)
 
-        # Cls loss
-        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        # =====================================================================
+        # 🎯 Size-Adaptive Loss Weighting (Small目标优化)
+        # 计算GT目标尺寸并分配权重: Small×2.0, Medium×1.5, Large×1.0
+        # =====================================================================
+        size_weights = torch.ones_like(target_scores)
+        if fg_mask.sum() > 0:
+            # 计算GT bbox面积 (已经是xyxy格式,单位是grid cells)
+            gt_widths = (target_bboxes[:, :, 2] - target_bboxes[:, :, 0]) * stride_tensor[:, :, 0]
+            gt_heights = (target_bboxes[:, :, 3] - target_bboxes[:, :, 1]) * stride_tensor[:, :, 1]
+            gt_areas = gt_widths * gt_heights  # 面积(pixels²)
+            
+            # COCO标准阈值: Small(<32²=1024), Medium(32²~96²=9216), Large(≥96²)
+            # 权重分配: Small×2.0 (强化), Medium×1.5, Large×1.0
+            size_weights = torch.where(
+                gt_areas < 1024, 
+                torch.tensor(2.0, device=self.device, dtype=dtype),  # Small目标×2.0
+                torch.where(
+                    gt_areas < 9216,
+                    torch.tensor(1.5, device=self.device, dtype=dtype),  # Medium目标×1.5
+                    torch.tensor(1.0, device=self.device, dtype=dtype)   # Large目标×1.0
+                )
+            )
+            
+            # 仅对正样本(fg_mask=True)应用权重
+            size_weights = size_weights * fg_mask.float()
+        # =====================================================================
 
-        # Bbox loss
+        # Cls loss (应用尺寸权重)
+        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
+        cls_loss_per_sample = self.bce(pred_scores, target_scores.to(dtype))
+        loss[1] = (cls_loss_per_sample * size_weights).sum() / target_scores_sum  # BCE with size weighting
+
+        # Bbox loss (应用尺寸权重)
         if fg_mask.sum():
-            loss[0], loss[2] = self.bbox_loss(
+            box_loss, dfl_loss = self.bbox_loss(
                 pred_distri,
                 pred_bboxes,
                 anchor_points,
@@ -296,6 +324,13 @@ class v8DetectionLoss:
                 target_scores_sum,
                 fg_mask,
             )
+            
+            # 应用尺寸权重到box和dfl loss
+            # bbox_loss返回的是标量,需要在bbox_loss内部或这里应用权重
+            # 这里我们用全局平均权重作为近似
+            avg_size_weight = size_weights.sum() / max(fg_mask.sum(), 1)
+            loss[0] = box_loss * avg_size_weight
+            loss[2] = dfl_loss * avg_size_weight
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
