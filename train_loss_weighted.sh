@@ -62,7 +62,6 @@ CUDA_VISIBLE_DEVICES=${DEVICE} python train_depth.py \
     --device 0 \
     --project ${PROJECT} \
     --name ${NAME} \
-    --weights ${WEIGHTS} \
     --save_period 50 \
     --patience 100 \
     --workers 8 \
