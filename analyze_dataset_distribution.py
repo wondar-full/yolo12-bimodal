@@ -29,8 +29,13 @@ class DatasetAnalyzer:
         with open(data_yaml_path, 'r', encoding='utf-8') as f:
             self.data_config = yaml.safe_load(f)
         
-        # 获取数据集根目录
-        self.data_root = Path(self.data_config.get('path', '.'))
+        # 获取数据集根目录 (处理可能的列表格式)
+        path_value = self.data_config.get('path', '.')
+        if isinstance(path_value, list):
+            # YAML中path可能是多行写法,取第一个非空值
+            self.data_root = Path([p for p in path_value if p][0])
+        else:
+            self.data_root = Path(path_value)
         
         # COCO标准阈值
         self.coco_small_thresh = 32 * 32  # 1024
@@ -65,18 +70,44 @@ class DatasetAnalyzer:
         print(f"🔍 分析 {split.upper()} 数据集")
         print(f"{'='*80}")
         
-        # 获取标签路径
+        # 根据YAML配置获取路径
         if split == 'train':
-            label_dir = self.data_root / 'labels' / 'train'
-            img_dir = self.data_root / 'images' / 'train'
+            img_rel_path = self.data_config.get('train', 'images/train')
         elif split == 'val':
-            label_dir = self.data_root / 'labels' / 'val'
-            img_dir = self.data_root / 'images' / 'val'
+            img_rel_path = self.data_config.get('val', 'images/val')
+        elif split == 'test':
+            img_rel_path = self.data_config.get('test', 'images/test')
         else:
             raise ValueError(f"Unknown split: {split}")
         
+        # 推断标签路径
+        # 例如: VisDrone2019-DET-train/images/rgb -> VisDrone2019-DET-train/labels
+        # 通用规则: 替换 /images/xxx 为 /labels
+        label_rel_path = img_rel_path
+        if '/images/' in label_rel_path:
+            # 找到/images/的位置,替换后面的部分
+            parts = label_rel_path.split('/images/')
+            label_rel_path = parts[0] + '/labels'
+        elif '\\images\\' in label_rel_path:
+            parts = label_rel_path.split('\\images\\')
+            label_rel_path = parts[0] + '\\labels'
+        else:
+            # 如果路径中没有images,尝试直接替换
+            label_rel_path = label_rel_path.replace('images', 'labels')
+        
+        # 构建完整路径
+        img_dir = self.data_root / img_rel_path
+        label_dir = self.data_root / label_rel_path
+        
+        print(f"📂 图像目录: {img_dir}")
+        print(f"📂 标签目录: {label_dir}")
+        
         if not label_dir.exists():
             print(f"❌ 标签目录不存在: {label_dir}")
+            return None
+        
+        if not img_dir.exists():
+            print(f"❌ 图像目录不存在: {img_dir}")
             return None
         
         # 收集所有标签文件
