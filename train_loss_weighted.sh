@@ -10,9 +10,9 @@ echo ""
 # 训练参数
 DATA_YAML="data/visdrone-rgbd.yaml"
 EPOCHS=300
-BATCH_SIZE=16
+BATCH_SIZE=8
 IMG_SIZE=640
-DEVICE=7
+DEVICE=2
 PROJECT="runs/train"
 NAME="exp_loss_weighted_v1"
 WEIGHTS="yolo12n.pt"

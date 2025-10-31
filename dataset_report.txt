@@ -1,0 +1,59 @@
+================================================================================
+VisDrone Dataset Size Distribution Report
+================================================================================
+
+TRAINING SET
+--------------------------------------------------------------------------------
+Total images: 6471
+Images with objects: 6471
+Total objects: 343205
+
+COCO Standard (32²/96²):
+  Small  (<32×32):  292741 ( 85.3%)
+  Medium (32~96):    48613 ( 14.2%)
+  Large  (≥96×96):    1851 (  0.5%)
+
+VisDrone Optimized (32²/64²):
+  Small  (<32×32):  292741 ( 85.3%)
+  Medium (32~64):    41732 ( 12.2%)
+  Large  (≥64×64):    8732 (  2.5%)
+
+
+================================================================================
+
+VALIDATION SET
+--------------------------------------------------------------------------------
+Total images: 548
+Images with objects: 548
+Total objects: 38759
+
+COCO Standard (32²/96²):
+  Small  (<32×32):   33279 ( 85.9%)
+  Medium (32~96):     5350 ( 13.8%)
+  Large  (≥96×96):     130 (  0.3%)
+
+VisDrone Optimized (32²/64²):
+  Small  (<32×32):   33279 ( 85.9%)
+  Medium (32~64):     4582 ( 11.8%)
+  Large  (≥64×64):     898 (  2.3%)
+
+
+================================================================================
+RECOMMENDATIONS
+================================================================================
+
+⚠️  CRITICAL: Val set has only 130 large objects (0.3%)
+   This is statistically unreliable for evaluation!
+
+💡 RECOMMENDATION: Use VisDrone optimized threshold (64²) instead
+   - This will increase large objects to ~898 (2.3%)
+   - More reliable for statistical evaluation
+   - Better reflects UAV detection scenarios
+
+⚠️  WARNING: Train set has only 0.5% large objects
+   Model may not learn large object detection well
+
+💡 RECOMMENDATION: Consider data augmentation for large objects
+   - Random crop & zoom
+   - Copy-paste augmentation
+
