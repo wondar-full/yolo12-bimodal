@@ -37,6 +37,9 @@ test_depth:
 # Number of classes
 nc: 10
 
+# Number of channels (RGB+D = 4 channels)
+channels: 4 # ✅ CRITICAL: Must be 4 for RGB-D dual-modal training
+
 # Class names (VisDrone2019 categories)
 names:
   0: pedestrian # 行人

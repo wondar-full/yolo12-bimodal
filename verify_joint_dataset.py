@@ -8,8 +8,8 @@
 import sys
 from pathlib import Path
 from ultralytics import YOLO
-from ultralytics.data import YOLORGBDDataset
-from ultralytics.utils import yaml_load
+from ultralytics.data.dataset import YOLORGBDDataset  # 直接从文件导入
+from ultralytics.utils import YAML  # 使用YAML类而不是yaml_load函数
 import numpy as np
 
 def verify_yaml_config(yaml_path):
@@ -23,7 +23,7 @@ def verify_yaml_config(yaml_path):
         print(f"❌ YAML文件不存在: {yaml_path}")
         return False
     
-    data = yaml_load(yaml_path)
+    data = YAML.load(yaml_path)  # 使用YAML类的load方法
     
     # 检查必需字段
     required_fields = ['path', 'train', 'val', 'train_depth', 'val_depth', 'nc', 'names']
@@ -74,10 +74,32 @@ def verify_dataset_loading(yaml_path):
     print("="*60)
     
     try:
-        # 加载训练集
+        # 首先加载YAML配置为字典
+        data_dict = YAML.load(yaml_path)
+        
+        # 构建绝对路径 (BaseDataset不会自动添加data['path']前缀)
+        root = Path(data_dict['path'])
+        train_paths = data_dict['train'] if isinstance(data_dict['train'], list) else [data_dict['train']]
+        train_depth_paths = data_dict['train_depth'] if isinstance(data_dict['train_depth'], list) else [data_dict['train_depth']]
+        
+        # 转换为绝对路径
+        absolute_train_paths = [str(root / p) for p in train_paths]
+        absolute_train_depth_paths = [str(root / p) for p in train_depth_paths]
+        
+        print(f"✅ 构建绝对路径:")
+        for i, (rgb, depth) in enumerate(zip(absolute_train_paths, absolute_train_depth_paths)):
+            print(f"   {i+1}. RGB:   {rgb}")
+            print(f"      Depth: {depth}")
+        
+        # 更新data_dict为绝对路径 (让YOLORGBDDataset能正确推断split)
+        data_dict_abs = data_dict.copy()
+        data_dict_abs['train'] = absolute_train_paths
+        data_dict_abs['train_depth'] = absolute_train_depth_paths
+        
+        # 加载训练集 (传入绝对路径列表和更新后的data_dict)
         dataset = YOLORGBDDataset(
-            img_path='train',
-            data=yaml_path,
+            img_path=absolute_train_paths,  # ✅ 传入绝对路径列表
+            data=data_dict_abs,  # ✅ 传入绝对路径版本的配置字典
             augment=False,
             batch_size=1
         )
@@ -94,6 +116,15 @@ def verify_dataset_loading(yaml_path):
         print(f"   期望: VisDrone ~6,471, UAVDT ~23,829")
         
         # 检查深度图
+        print(f"\n🔍 调试信息:")
+        print(f"   dataset._depth_enabled: {dataset._depth_enabled if hasattr(dataset, '_depth_enabled') else 'N/A'}")
+        print(f"   dataset.depth_files存在: {hasattr(dataset, 'depth_files')}")
+        if hasattr(dataset, 'depth_files'):
+            print(f"   dataset.depth_files类型: {type(dataset.depth_files)}")
+            print(f"   dataset.depth_files长度: {len(dataset.depth_files) if dataset.depth_files else 0}")
+            if dataset.depth_files:
+                print(f"   第一个深度图路径: {dataset.depth_files[0]}")
+        
         if dataset.depth_files:
             print(f"\n✅ 深度图已启用")
             print(f"   深度图数: {len(dataset.depth_files)}")
@@ -105,6 +136,10 @@ def verify_dataset_loading(yaml_path):
                 print(f"⚠️ 配对不完整: {len(dataset.im_files)} RGB, {len(dataset.depth_files)} Depth")
         else:
             print(f"❌ 深度图未加载! 检查路径是否正确")
+            print(f"   可能原因:")
+            print(f"   1. _initialize_depth_paths() 失败")
+            print(f"   2. _infer_depth_split() 返回None")
+            print(f"   3. depth_files为空列表")
             return False
         
         return dataset
