@@ -16,26 +16,23 @@ path:
   # Example (Windows): F:/Datasets/VisDrone2019-DET
 
 # RGB image paths (relative to 'path')
-train: 
-  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-train/images/rgb # Training RGB images directory
-  - UAVDT_YOLO/train/images/rgb
-val: 
-  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val/images/rgb # Validation RGB images directory
-  - UAVDT_YOLO/val/images/rgb
-test: 
-  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val/images/rgb # Test RGB images directory (optional)
-  - UAVDT_YOLO/val/images/rgb
+train:
+  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-train/images/rgb # VisDrone训练集 (6,471张)
+  - UAVDT_YOLO/train/images/rgb # UAVDT训练集 (23,829张)
+val:
+  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val/images/rgb # 只用VisDrone验证集 (548张，对齐RemDet评估)
+test:
+  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val/images/rgb # 测试集同验证集
 
 # Depth map paths (relative to 'path') - REQUIRED FOR RGB-D TRAINING
-train_depth: 
-  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-train/images/d # Training depth maps directory
-  - UAVDT_YOLO/train/images/d
-val_depth: 
-  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val/images/d # Validation depth maps directory
-  - UAVDT_YOLO/val/images/d
-test_depth: 
-  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val/images/d # Test depth maps directory (optional)
-  - UAVDT_YOLO/val/images/d
+# ⚠️ 注意: 深度图在images/d/目录 (保持现有结构)
+train_depth:
+  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-train/images/d # VisDrone深度图
+  - UAVDT_YOLO/train/images/d # UAVDT深度图 (将由generate_depths_uavdt.py生成)
+val_depth:
+  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val/images/d # 只用VisDrone深度图
+test_depth:
+  - VisDrone2019-DET-YOLO/VisDrone2YOLO/VisDrone2019-DET-val/images/d
 
 # Number of classes
 nc: 10
