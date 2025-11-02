@@ -62,7 +62,7 @@ def main():
     else:
         # VisDrone深度图目录 - 尝试多个可能的位置
         possible_bases = [
-            Path(r'f:\CV\Paper\yoloDepth\yoloDepth\datasets\VisDrone'),
+            Path(r'/data2/user/2024/lzy/Datasets/VisDrone2019-DET-YOLO/VisDrone2YOLO'),
             Path(r'f:\CV\Paper\yoloDepth\datasets\VisDrone'),
             Path(r'f:\CV\datasets\VisDrone'),
             Path(r'.\datasets\VisDrone'),
@@ -72,7 +72,7 @@ def main():
         for base in possible_bases:
             if base.exists():
                 possible_paths.extend([
-                    base / 'depths' / 'train',
+                    base / 'VisDrone2019-DET-train''/images/d',
                     base / 'train' / 'depths',
                     base / 'VisDrone2019-DET-train' / 'depths',
                 ])

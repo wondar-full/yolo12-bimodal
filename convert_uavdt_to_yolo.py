@@ -46,8 +46,8 @@ def convert_coco_to_yolo(json_path, images_root, output_root, split='train'):
     
     # 创建输出目录
     output_path = Path(output_root) / split
-    labels_dir = output_path / 'labels'
-    images_dir = output_path / 'images'
+    labels_dir = output_path / 'labels/rgb'
+    images_dir = output_path / 'images/rgb'
     labels_dir.mkdir(parents=True, exist_ok=True)
     images_dir.mkdir(parents=True, exist_ok=True)
     
@@ -150,8 +150,8 @@ def convert_coco_to_yolo(json_path, images_root, output_root, split='train'):
 def main():
     """主函数"""
     # 路径配置
-    uavdt_root = Path(r'f:\CV\Paper\yoloDepth\yoloDepth\datasets\UAVDT')
-    output_root = Path(r'f:\CV\Paper\yoloDepth\yoloDepth\datasets\UAVDT_YOLO')
+    uavdt_root = Path(r'/data2/user/2024/lzy/Datasets/UAVDT')
+    output_root = Path(r'/data2/user/2024/lzy/Datasets/UAVDT_YOLO')
     images_root = uavdt_root / 'images' / 'UAV-benchmark-M'
     
     print("\n" + "="*60)
