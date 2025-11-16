@@ -38,7 +38,6 @@ from typing import Iterable
 
 from ultralytics.models import YOLO
 from ultralytics.utils import LOGGER, RANK
-from ultralytics.utils.metrics_export import register_metrics_export
 from ultralytics.utils.torch_utils import unwrap_model
 
 # =====================================================================
@@ -443,9 +442,6 @@ def main():
         else:
             model = YOLO(args.model)
             LOGGER.info("Training from scratch (no pretrained weights)")
-    
-    # Register metrics export for advanced monitoring
-    register_metrics_export(model)
     
     # Register training callbacks
     model.add_callback('on_train_epoch_start', schedule_assignment)
