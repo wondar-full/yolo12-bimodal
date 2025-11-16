@@ -1,0 +1,123 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 License
+# YOLO12-S RGB-D ChannelC2f - Phase 3: Enhanced Medium-Scale Detection
+# Created: 2025-10-28 for yoloDepth Phase 3
+# Objective: Solve Medium mAP crisis (14.28% → target 20%+)
+# Scale: Small (轻量, 对标 RemDet-S)
+
+# ================================================================================================
+# Phase 3 Background
+# ================================================================================================
+# Problem Discovery:
+#   - Medium objects占比: 45.5% (17,647个) - 最多！
+#   - Medium mAP: 14.28% - 最低！
+#   - Medium Recall: 11.7% - 严重漏检！
+#   - Small mAP (18.13%) 和 Large mAP (26.88%) 都正常
+#
+# Root Cause:
+#   - P4层 (stride=16, medium detection layer) 特征表达不足
+#   - 模型偏向Small和Large，忽略Medium
+#
+# Solution:
+#   - 在P4层使用ChannelC2f (C2f + Channel Attention)
+#   - 增强中等尺度特征的通道表达能力
+#
+# Expected Improvement:
+#   - Medium mAP: 14.28% → 20-25% (+6-11%)
+#   - Overall mAP: 44.03% → 46-48% (+2-4%)
+#
+# ================================================================================================
+
+# Model Configuration
+nc: 10  # VisDrone classes
+
+# Model compound scaling constants
+scales:
+  # [depth, width, max_channels]
+  n: [0.50, 0.25, 1024]  # YOLO12-N (Nano)  - 对标 RemDet-Tiny
+  s: [0.50, 0.50, 1024]  # YOLO12-S (Small) - 对标 RemDet-S
+  m: [0.50, 1.00, 512]   # YOLO12-M (Medium) - 对标 RemDet-M
+  l: [1.00, 1.00, 512]   # YOLO12-L (Large) - 对标 RemDet-L
+  x: [1.00, 1.50, 512]   # YOLO12-X (XLarge) - 对标 RemDet-X
+
+# ================================================================================================
+# Backbone (Phase 3 Modified)
+# ================================================================================================
+# Key Modification:
+#   Layer 6 (P4/16): A2C2f → ChannelC2f ⭐
+#   - Only P4 layer uses ChannelC2f (medium-scale detection)
+#   - P3 and P5 use standard modules
+
+backbone:
+  # [from, repeats, module, args]
+
+  # Layer 0-1: RGB-D Input Processing
+  - [-1, 1, RGBDStem, [4, 128, 3, 2, 1, 64, "gated_add", 16, True]]  # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]  # 1-P2/4
+
+  # Layer 2-4: P3 Path (Small detection - unchanged)
+  - [-1, 2, C3k2, [256, False, 0.25]]  # 2
+  - [-1, 1, Conv, [256, 3, 2]]  # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]]  # 4
+
+  # Layer 5-6: P4 Path (Medium detection - ⭐ Phase 3 MODIFICATION)
+  - [-1, 1, Conv, [512, 3, 2]]  # 5-P4/16
+  
+  # ⭐ Phase 3: Replace A2C2f with ChannelC2f
+  # Args: [c2, shortcut, g, e, reduction]
+  #   c1 and n are auto-inserted by parse_model()
+  #   c2=512: Output channels
+  #   shortcut=True: Use residual connections
+  #   g=1: Groups (standard convolution)
+  #   e=0.5: Expansion ratio
+  #   reduction=16: Channel attention bottleneck ratio
+  - [-1, 4, ChannelC2f, [512, True, 1, 0.5, 16]]  # 6-P4/16 ⭐ Phase 3
+
+  # Layer 7-8: P5 Path (Large detection - unchanged)
+  - [-1, 1, Conv, [1024, 3, 2]]  # 7-P5/32
+  - [-1, 4, A2C2f, [1024, True, 1]]  # 8
+
+# ================================================================================================
+# Head (Unchanged from Phase 1)
+# ================================================================================================
+head:
+  # Upsample path
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 9
+  - [[-1, 6], 1, Concat, [1]]  # 10 - cat backbone P4 (ChannelC2f output)
+  - [-1, 2, A2C2f, [512, False, -1]]  # 11
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 12
+  - [[-1, 4], 1, Concat, [1]]  # 13 - cat backbone P3
+  - [-1, 2, A2C2f, [256, False, -1]]  # 14
+
+  # Downsample path
+  - [-1, 1, Conv, [256, 3, 2]]  # 15
+  - [[-1, 11], 1, Concat, [1]]  # 16 - cat head P4
+  - [-1, 2, A2C2f, [512, False, -1]]  # 17
+
+  - [-1, 1, Conv, [512, 3, 2]]  # 18
+  - [[-1, 8], 1, Concat, [1]]  # 19 - cat head P5
+  - [-1, 2, C3k2, [1024, True]]  # 20
+
+  # Detection heads
+  - [[14, 17, 20], 1, Detect, [nc]]  # 21 - Detect(P3, P4, P5)
+
+# ================================================================================================
+# Model Summary (Expected - YOLO12-S Phase 3)
+# ================================================================================================
+# Parameters: ~9.5M (+1.4% vs Phase 1)
+# FLOPs: ~20G (+0.5% vs Phase 1)
+# Pretrained: yolo12s.pt (optional)
+#
+# RemDet Comparison Target:
+#   - RemDet-S: See AAAI2025 paper Table 1
+#   - Goal: Match or exceed RemDet performance on VisDrone
+#
+# Training Command:
+#   python train_phase3.py \
+#     --model ultralytics/cfg/models/12/yolo12s-rgbd-channelc2f.yaml \
+#     --data data/visdrone-rgbd.yaml \
+#     --epochs 150 \
+#     --batch 16 \
+#     --name phase3_channelc2f_s
+#
+# ================================================================================================
