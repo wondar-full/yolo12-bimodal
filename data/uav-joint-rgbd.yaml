@@ -14,20 +14,20 @@ path: /data2/user/2024/lzy/Datasets
 # RGB 图像路径
 # =====================================================================
 train:
-  - VisDrone2019-DET-YOLO/VisDrone2YOLO/train/images # 6,471张
-  - UAVDT_YOLO/train/images # 23,258张
+  - VisDrone2019-DET-YOLO/VisDrone2YOLO/train/images/rgb # 6,471张
+  - UAVDT_YOLO/train/images/rgb # 23,258张
 
-val: VisDrone2019-DET-YOLO/VisDrone2YOLO/val/images # 548张
+val: VisDrone2019-DET-YOLO/VisDrone2YOLO/val/images/rgb # 548张
 
 # =====================================================================
 # 深度图路径 (RGB-D模式)
 # =====================================================================
 # 注意: 需要提前生成深度图，与RGB图像一一对应
 train_depth:
-  - VisDrone2019-DET-YOLO/VisDrone2YOLO/train/depths # 对应VisDrone RGB
-  - UAVDT_YOLO/train/depths # 对应UAVDT RGB
+  - VisDrone2019-DET-YOLO/VisDrone2YOLO/train/images/d # 对应VisDrone RGB
+  - UAVDT_YOLO/train/images/d # 对应UAVDT RGB
 
-val_depth: VisDrone2019-DET-YOLO/VisDrone2YOLO/val/depths
+val_depth: VisDrone2019-DET-YOLO/VisDrone2YOLO/val/images/d
 
 # =====================================================================
 # 类别配置 (保持VisDrone 10类标准)
