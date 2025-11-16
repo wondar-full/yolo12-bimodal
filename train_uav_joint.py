@@ -157,8 +157,10 @@ def schedule_assignment(trainer) -> None:
     if not hasattr(schedule_assignment, "_base_topk"):
         schedule_assignment._base_topk = getattr(loss_module.assigner, "topk", TAL_TOPK_BASE)
     
-    warmup_epochs = getattr(trainer.args, "tal_topk_warmup", TAL_TOPK_WARMUP_EPOCHS)
-    high_topk = getattr(trainer.args, "tal_topk_high", TAL_TOPK_HIGH)
+    # Get custom args from model
+    custom_args = getattr(trainer.model, "custom_args", None)
+    warmup_epochs = getattr(custom_args, "tal_topk_warmup", TAL_TOPK_WARMUP_EPOCHS) if custom_args else TAL_TOPK_WARMUP_EPOCHS
+    high_topk = getattr(custom_args, "tal_topk_high", TAL_TOPK_HIGH) if custom_args else TAL_TOPK_HIGH
     
     # Use high topk during warmup, then revert to base
     target_topk = high_topk if trainer.epoch < warmup_epochs else schedule_assignment._base_topk
@@ -189,10 +191,12 @@ def adjust_loss_gains(trainer) -> None:
         adjust_loss_gains._base_box = float(loss_module.hyp.box)
         adjust_loss_gains._base_dfl = float(loss_module.hyp.dfl)
     
-    ramp_start = getattr(trainer.args, "box_gain_ramp_start", BOX_GAIN_RAMP_START)
-    ramp_epochs = max(1, getattr(trainer.args, "box_gain_ramp_epochs", BOX_GAIN_RAMP_EPOCHS))
-    target_box = getattr(trainer.args, "box_gain_target", BOX_GAIN_TARGET)
-    target_dfl = getattr(trainer.args, "dfl_gain_target", DFL_GAIN_TARGET)
+    # Get custom args from model
+    custom_args = getattr(trainer.model, "custom_args", None)
+    ramp_start = getattr(custom_args, "box_gain_ramp_start", BOX_GAIN_RAMP_START) if custom_args else BOX_GAIN_RAMP_START
+    ramp_epochs = max(1, getattr(custom_args, "box_gain_ramp_epochs", BOX_GAIN_RAMP_EPOCHS) if custom_args else BOX_GAIN_RAMP_EPOCHS)
+    target_box = getattr(custom_args, "box_gain_target", BOX_GAIN_TARGET) if custom_args else BOX_GAIN_TARGET
+    target_dfl = getattr(custom_args, "dfl_gain_target", DFL_GAIN_TARGET) if custom_args else DFL_GAIN_TARGET
     
     if trainer.epoch < ramp_start:
         # Before ramp: use base gains
@@ -453,6 +457,9 @@ def main():
     # We use nbs=128 to maintain equivalent gradient accumulation
     nbs = 128  # Nominal batch size for weight decay scaling
     
+    # Store custom args as model attributes (for callbacks to access)
+    model.custom_args = args
+    
     # Start training
     results = model.train(
         # Data configuration
@@ -491,17 +498,6 @@ def main():
         resume=args.resume,
         save_period=args.save_period,
         patience=args.patience,
-        
-        # RGB-D specific
-        solr=args.solr,
-        
-        # Advanced schedules (passed to callbacks)
-        tal_topk_warmup=args.tal_topk_warmup,
-        tal_topk_high=args.tal_topk_high,
-        box_gain_ramp_start=args.box_gain_ramp_start,
-        box_gain_ramp_epochs=args.box_gain_ramp_epochs,
-        box_gain_target=args.box_gain_target,
-        dfl_gain_target=args.dfl_gain_target,
     )
     
     # Log final results
