@@ -58,7 +58,7 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="ultralytics/cfg/models/12/yolo12s-rgbd-v1.yaml",
+        default="/data2/user/2024/lzy/yolo12-bimodal/ultralytics/cfg/models/12/yolo12n-rgbd-v1.yaml",
         help="Model configuration YAML file path"
     )
     parser.add_argument(
@@ -98,7 +98,7 @@ def parse_args():
     parser.add_argument(
         "--device",
         type=str,
-        default="2",
+        default="7",
         help="CUDA device(s) to use, e.g. '0' or '0,1,2,3' for multi-GPU"
     )
     

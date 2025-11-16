@@ -281,13 +281,49 @@ class v8DetectionLoss:
 
         target_scores_sum = max(target_scores.sum(), 1)
 
-        # Cls loss
-        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        # =====================================================================
+        # 🎯 Size-Adaptive Loss Weighting (Small目标优化)
+        # 计算GT目标尺寸并分配权重: Small×2.0, Medium×1.5, Large×1.0
+        # =====================================================================
+        # 计算每个anchor对应GT的尺寸权重 (形状: bs, num_anchors)
+        area_weights = torch.ones(batch_size, anchor_points.shape[0], device=self.device, dtype=dtype)
+        
+        if fg_mask.sum() > 0:
+            # 计算GT bbox面积 (已经是xyxy格式,单位是grid cells)
+            # target_bboxes: (bs, num_anchors, 4), stride_tensor: (num_anchors, 1)
+            stride_broadcast = stride_tensor.unsqueeze(0)  # (1, num_anchors, 1)
+            
+            gt_widths = (target_bboxes[:, :, 2] - target_bboxes[:, :, 0]) * stride_broadcast.squeeze(-1)
+            gt_heights = (target_bboxes[:, :, 3] - target_bboxes[:, :, 1]) * stride_broadcast.squeeze(-1)
+            gt_areas = gt_widths * gt_heights  # 面积(pixels²), shape: (bs, num_anchors)
+            
+            # COCO标准阈值: Small(<32²=1024), Medium(32²~96²=9216), Large(≥96²)
+            # 权重分配: Small×2.0 (强化), Medium×1.5, Large×1.0
+            area_weights = torch.where(
+                gt_areas < 1024, 
+                torch.tensor(2.0, device=self.device, dtype=dtype),  # Small目标×2.0
+                torch.where(
+                    gt_areas < 9216,
+                    torch.tensor(1.5, device=self.device, dtype=dtype),  # Medium目标×1.5
+                    torch.tensor(1.0, device=self.device, dtype=dtype)   # Large目标×1.0
+                )
+            )
+            
+            # 仅对正样本(fg_mask=True)应用权重
+            area_weights = area_weights * fg_mask.float()
+        
+        # 扩展area_weights以匹配target_scores的形状: (bs, num_anchors) → (bs, num_anchors, num_classes)
+        size_weights = area_weights.unsqueeze(-1).expand_as(target_scores)
+        # =====================================================================
 
-        # Bbox loss
+        # Cls loss (应用尺寸权重)
+        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
+        cls_loss_per_sample = self.bce(pred_scores, target_scores.to(dtype))
+        loss[1] = (cls_loss_per_sample * size_weights).sum() / target_scores_sum  # BCE with size weighting
+
+        # Bbox loss (应用尺寸权重)
         if fg_mask.sum():
-            loss[0], loss[2] = self.bbox_loss(
+            box_loss, dfl_loss = self.bbox_loss(
                 pred_distri,
                 pred_bboxes,
                 anchor_points,
@@ -296,6 +332,12 @@ class v8DetectionLoss:
                 target_scores_sum,
                 fg_mask,
             )
+            
+            # 应用尺寸权重到box和dfl loss
+            # 使用area_weights (bs, num_anchors) 计算正样本的平均权重
+            avg_area_weight = area_weights[fg_mask].mean() if fg_mask.sum() > 0 else 1.0
+            loss[0] = box_loss * avg_area_weight
+            loss[2] = dfl_loss * avg_area_weight
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
