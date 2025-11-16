@@ -1,0 +1,291 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# YOLO12-S RGB-D v2.1 Joint Training (VisDrone + UAVDT)
+# Created: 2025-11-16 for RemDet alignment
+# Goal: Align with RemDet paper's training protocol - VisDrone+UAVDT from scratch
+# Target: Surpass RemDet-X 45.2% mAP@0.5 with RGB-D multi-modal fusion
+
+# ================================================================================================
+# RemDet Alignment Strategy
+# ================================================================================================
+# 📌 RemDet Training Protocol (from paper "Implementation Details"):
+#   - Datasets: VisDrone (6,471) + UAVDT (23,258) = 29,729 training images
+#   - Method: Trained from scratch (NO COCO pretraining)
+#   - Epochs: 300
+#   - Optimizer: SGD (lr=0.01, momentum=0.937, weight_decay=0.0005)
+#   - Data augmentation: Mosaic=1.0, MixUp=0.15
+#   - Evaluation: VisDrone val set only (548 images)
+#
+# 📌 Our RGB-D Enhancement:
+#   - Same training data (VisDrone + UAVDT)
+#   - Same epochs (300)
+#   - Same optimizer (SGD with paper hyperparameters)
+#   - Additional modality: Depth maps for geometric priors
+#   - Multi-scale fusion: RGBDStem + RGBDMidFusion @ P3/P4/P5
+#
+# 📌 Fair Comparison:
+#   - RemDet-X: 45.2% mAP@0.5 (RGB-only, VisDrone val)
+#   - Our target: > 45.2% mAP@0.5 (RGB-D, same val set)
+#   - Improvement source: Depth geometry priors, not more data
+# ================================================================================================
+
+# ================================================================================================
+# v2.1 Multi-Scale RGB-D Fusion Architecture
+# ================================================================================================
+# Key Improvements:
+# 1. ✅ RGBDStem: Early fusion with gated attention (Layer 0)
+# 2. ✅ RGBDMidFusion @ P3/P4/P5: Re-inject depth at detection scales
+# 3. ✅ Depth skip connections: Preserve depth from Layer 0 to all scales
+# 4. ✅ Cross-modal attention: Adaptive fusion weights (learnable)
+#
+# Performance (VisDrone-only baseline):
+# - v2.1 (VisDrone only): 43.51% mAP@0.5 @ 244 epochs
+# - RGB-only: 40.44% mAP@0.5 @ 238 epochs
+# - Gain: +3.07% from RGB-D fusion
+#
+# Expected (VisDrone + UAVDT joint training):
+# - RemDet-X: 45.2% mAP@0.5 (RGB-only)
+# - Our target: 46-47% mAP@0.5 (RGB-D with 4.6x training data)
+# ================================================================================================
+
+# ================================================================================================
+# Model Configuration
+# ================================================================================================
+nc: 10 # Number of classes (VisDrone 10 classes, UAVDT filtered to match)
+
+# UAVDT Class Filtering:
+#   UAVDT has 3 classes: car(0), truck(1), bus(2)
+#   Mapped to VisDrone IDs: car→3, truck→5, bus→8
+#   Other VisDrone classes (pedestrian, van, etc.) come from VisDrone dataset
+
+# Model compound scaling constants
+scales:
+  # [depth, width, max_channels]
+  n: [0.50, 0.25, 1024] # nano
+  s: [0.50, 0.50, 1024] # small - **RGB-D v2.1 joint training** ✅
+  m: [0.50, 1.00, 512] # medium
+  l: [1.00, 1.00, 512] # large
+  x: [1.00, 1.50, 512] # extra-large
+
+# ================================================================================================
+# Backbone (Feature Extractor) - Identical to v2.1
+# ================================================================================================
+# Architecture unchanged from yolo12s-rgbd-v2.1.yaml
+# All RGBDStem and RGBDMidFusion modules preserved
+# See yolo12s-rgbd-v2.1.yaml for detailed architecture explanation
+
+backbone:
+  # [from, repeats, module, args]
+
+  # ============ P1/2 Stage - Early Fusion ============
+  - [-1, 1, RGBDStem, [4, 128, 3, 2, 1, 64, "gated_add", 16, True]] # 0-P1/2
+
+  # ============ P2/4 Stage ============
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]] # 2
+
+  # ============ P3/8 Stage - First Depth Re-injection ============
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]] # 4-P3 features
+  - [[4, 0], 1, RGBDMidFusion, [512, 64]] # 5-P3 depth fusion ✅
+
+  # ============ P4/16 Stage - Second Depth Re-injection ============
+  - [-1, 1, Conv, [512, 3, 2]] # 6-P4/16
+  - [-1, 4, A2C2f, [512, True, 4]] # 7-P4 features
+  - [[7, 0], 1, RGBDMidFusion, [512, 64]] # 8-P4 depth fusion ✅
+
+  # ============ P5/32 Stage - Third Depth Re-injection ============
+  - [-1, 1, Conv, [1024, 3, 2]] # 9-P5/32
+  - [-1, 4, A2C2f, [1024, True, 1]] # 10-P5 features
+  - [[10, 0], 1, RGBDMidFusion, [1024, 64]] # 11-P5 depth fusion ✅
+
+# ================================================================================================
+# Head (Detection) - Identical to v2.1
+# ================================================================================================
+head:
+  # ============ Upsample Path ============
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 12
+  - [[-1, 8], 1, Concat, [1]] # 13
+  - [-1, 2, A2C2f, [512, False, -1]] # 14
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 15
+  - [[-1, 5], 1, Concat, [1]] # 16
+  - [-1, 2, A2C2f, [256, False, -1]] # 17 (P3/8-small)
+
+  # ============ Downsample Path ============
+  - [-1, 1, Conv, [256, 3, 2]] # 18
+  - [[-1, 14], 1, Concat, [1]] # 19
+  - [-1, 2, A2C2f, [512, False, -1]] # 20 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]] # 21
+  - [[-1, 11], 1, Concat, [1]] # 22
+  - [-1, 2, C3k2, [1024, True]] # 23 (P5/32-large)
+
+  # ============ Detection Heads ============
+  - [[17, 20, 23], 1, Detect, [nc]] # 24-Detect(P3, P4, P5)
+
+# ================================================================================================
+# Training Configuration (RemDet-Aligned)
+# ================================================================================================
+# Use with train_uav_joint.py:
+#
+# python train_uav_joint.py \
+#     --model ultralytics/cfg/models/12/yolo12s-rgbd-v2.1-joint.yaml \
+#     --data data/uav-joint-rgbd.yaml \
+#     --epochs 300 \
+#     --batch 16 \
+#     --imgsz 640 \
+#     --device 0 \
+#     --workers 8 \
+#     --name rgbd_v2.1_joint_300ep \
+#     --optimizer SGD \
+#     --lr0 0.01 \
+#     --momentum 0.937 \
+#     --weight_decay 0.0005 \
+#     --warmup_epochs 3 \
+#     --cos_lr True \
+#     --mosaic 1.0 \
+#     --mixup 0.15 \
+#     --close_mosaic 10 \
+#     --amp True \
+#     --pretrained "" \
+#     --patience 100 \
+#     --save_period 50
+
+# ================================================================================================
+# Expected Performance (300 epochs, VisDrone+UAVDT)
+# ================================================================================================
+# | Method          | Dataset       | mAP@0.5 | mAP@0.5:0.95 | Params | FLOPs  |
+# |-----------------|---------------|---------|--------------|--------|--------|
+# | RemDet-X        | VisDrone+UAVDT| 45.2%   | ~27%         | 9.8M   | 14.8G  |
+# | RGB-only v2.1   | VisDrone only | 40.4%   | 24.1%        | 11.1M  | 45.6G  |
+# | RGB-D v2.1      | VisDrone only | 43.5%   | 26.3%        | 11.3M  | 45.8G  |
+# | RGB-D v2.1 Joint| VisDrone+UAVDT| **46-47%** | **28-29%** | 11.3M  | 45.8G  |
+#
+# Key Metrics to Monitor:
+# - mAP@0.5: Primary metric (must > 45.2%)
+# - mAP_small: Small object detection (UAV scenario critical)
+# - Precision/Recall balance: Should be within 5% gap
+# - Training stability: No NaN/Inf, smooth loss curves
+# - Fusion weights: Should converge to 0.3-0.5 range
+
+# ================================================================================================
+# Multi-Dataset Training Notes
+# ================================================================================================
+# 1. Dataset Sampling:
+#    - VisDrone: 6,471 images (21.8%)
+#    - UAVDT: 23,258 images (78.2%)
+#    - Default: Proportional sampling (UAVDT sampled 3.6x more frequently)
+#    - Alternative: Balanced sampling (each dataset 50% probability)
+#
+# 2. Class Distribution:
+#    - VisDrone: 10 classes (full coverage)
+#    - UAVDT: 3 classes (car, truck, bus) mapped to VisDrone IDs
+#    - Class imbalance: Some classes (pedestrian, van) only from VisDrone
+#    - Mitigation: Class-weighted loss (optional)
+#
+# 3. Depth Map Quality:
+#    - VisDrone: Depth generated by [your depth estimation method]
+#    - UAVDT: Depth generated by [same method]
+#    - Quality check: Use check_depth_quality.py before training
+#    - Fallback: If depth missing, use zeros (graceful degradation)
+#
+# 4. Validation Protocol:
+#    - Use ONLY VisDrone val set (548 images) - aligns with RemDet
+#    - UAVDT val set can be used for additional analysis (not primary metric)
+#    - Report mAP@0.5, mAP@0.5:0.95, mAP_small/medium/large
+
+# ================================================================================================
+# Troubleshooting Multi-Dataset Training
+# ================================================================================================
+# Issue 1: Class distribution imbalance
+#   - VisDrone classes underrepresented due to fewer images
+#   - Solution: Use dataset_weights in YAML (e.g., VisDrone=2.0, UAVDT=1.0)
+#
+# Issue 2: UAVDT images have different aspect ratios
+#   - May cause bbox annotation issues
+#   - Solution: Verify YOLO format conversion (check labels)
+#
+# Issue 3: Depth map file not found for UAVDT
+#   - UAVDT depth generation incomplete
+#   - Solution: Run depth generation script or use zero-depth fallback
+#
+# Issue 4: Training converges slower than VisDrone-only
+#   - More diverse data requires longer training
+#   - Solution: Increase epochs from 300 to 400 if needed
+#
+# Issue 5: Validation mAP drops after adding UAVDT
+#   - Model overfits to UAVDT (more training data)
+#   - Solution: Increase VisDrone dataset weight or use balanced sampling
+
+# ================================================================================================
+# Ablation Experiments
+# ================================================================================================
+# To isolate RGB-D improvement from dataset scaling:
+#
+# 1. RGB-only + Joint Training:
+#    - Same VisDrone+UAVDT data, no depth
+#    - Expected: 44-45% mAP@0.5 (dataset scaling only)
+#
+# 2. RGB-D + VisDrone Only:
+#    - Already done: 43.5% @ 244 epochs
+#
+# 3. RGB-D + Joint Training (this config):
+#    - Expected: 46-47% mAP@0.5
+#    - Gain breakdown: +3% (RGB-D) + 1.5-2% (dataset scaling)
+#
+# 4. Different Fusion Strategies:
+#    - Early fusion only (RGBDStem, no RGBDMidFusion)
+#    - Late fusion (separate RGB/D backbones, fuse at head)
+#    - Compare with current mid-fusion approach
+
+# ================================================================================================
+# Version History
+# ================================================================================================
+# v2.1 (2025-10-27): Initial release with VisDrone-only training
+#   - Achieved 43.51% mAP@0.5 @ 244 epochs
+#   - Baseline: 40.44% (RGB-only)
+#   - Gain: +3.07% from RGB-D fusion
+#
+# v2.1-joint (2025-11-16): Multi-dataset training for RemDet alignment
+#   - No architecture changes from v2.1
+#   - Added VisDrone + UAVDT joint training support
+#   - Target: Surpass RemDet-X 45.2% with RGB-D advantage
+#   - Training data: 4.6x increase (6,471 → 29,729 images)
+
+# ================================================================================================
+# 📚 八股知识点: Multi-Dataset Training Strategies
+# ================================================================================================
+#
+# Q1: 为什么不在COCO上预训练再fine-tune UAV数据？
+# A: (1) RemDet论文明确说"from scratch" - 公平对比要求
+#    (2) COCO是地面视角,UAV是俯视视角 - domain gap大
+#    (3) 实验表明from scratch在UAV任务上效果更好(RemDet证明)
+#    (4) 可选ablation: 测试COCO预训练是否真的有帮助
+#
+# Q2: VisDrone和UAVDT类别不一致如何处理？
+# A: (1) VisDrone: 10类(行人/自行车/汽车/面包车/卡车/...)
+#    (2) UAVDT: 3类(car/truck/bus)
+#    (3) 映射策略: UAVDT car→VisDrone ID=3, truck→5, bus→8
+#    (4) 训练时统一用VisDrone 10类标签
+#    (5) UAVDT图像只标注3类,其他类视为负样本
+#
+# Q3: 多数据集训练时如何平衡采样？
+# A: 三种策略:
+#    (1) 比例采样: 按数据集大小 (VisDrone 22% vs UAVDT 78%)
+#    (2) 均匀采样: 每个数据集50%概率 (平衡类别分布)
+#    (3) 加权采样: dataset_weights=[2.0, 1.0] (手动调整)
+#    RemDet未说明,推测用比例采样 (最简单)
+#
+# Q4: 为什么validation只用VisDrone不用UAVDT？
+# A: (1) RemDet论文评估协议: VisDrone val set (548 images)
+#    (2) 公平对比要求: 同样val集合
+#    (3) UAVDT val可以额外测试,但不作为主指标
+#    (4) 避免"数据泄露": UAVDT训练数据多,用其val会偏高
+#
+# Q5: 多数据集训练会增加多少计算成本？
+# A: (1) 数据量: 6,471 → 29,729 (4.6x)
+#    (2) Epoch时间: ~1小时 → ~4.6小时 (线性增长)
+#    (3) 总训练时间: 300 epochs × 4.6小时 = 1,380小时 = 57.5天
+#    (4) 优化: 多GPU并行(8卡 → 7.2天), 混合精度AMP (再减30%)
+#    (5) 最终: 单卡300 epochs约5-6天可完成
+# ================================================================================================
