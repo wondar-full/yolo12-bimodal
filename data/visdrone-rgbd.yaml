@@ -1,284 +1,76 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
-# VisDrone2019-DET RGB-D Dataset Configuration
-# Created for yoloDepth project - RGB-D dual-modal object detection
+# =====================================================================
+# VisDrone RGB-D 数据集配置 (独立训练 - 方案A)
+# =====================================================================
+# 创建时间: 2025-11-17
+# 用途: 严格对齐 RemDet 论文 Table 1 (VisDrone results)
+# 训练方式: VisDrone 独立训练 (6,471 张,from scratch)
+# 验证数据: VisDrone val (548 张)
+# 评估标准: COCO-style AP (使用 pycocotools)
+# =====================================================================
 
-# Dataset Information
-# VisDrone2019-DET: Large-scale UAV object detection benchmark
-# Website: http://aiskyeye.com/
-# Classes: 10 object categories
-# Train: 6,471 images, Val: 548 images
-# Characteristics: Small objects (avg size 12×12 px), occlusions, varying scales
+# 数据集根目录（远程服务器绝对路径）
+path: /data2/user/2024/lzy/Datasets/VisDrone2019-DET-YOLO/VisDrone2YOLO
 
-# Dataset root path (absolute path recommended)
-path:
-  /data2/user/2024/lzy/Datasets/VisDrone2019-DET-YOLO/VisDrone2YOLO # TODO: Replace with your actual dataset path
-  # Example: /data/datasets/VisDrone2019-DET
-  # Example (Windows): F:/Datasets/VisDrone2019-DET
+# RGB 图像路径 (相对于 path)
+train: train/images/rgb # 6,471张
+val: val/images/rgb # 548张
 
-# RGB image paths (relative to 'path')
-train: train/images/rgb # Training RGB images directory
-val: val/images/rgb # Validation RGB images directory
-test: val/images/rgb # Test RGB images directory (optional)
+# 深度图路径 (RGB-D 双模态)
+train_depth: train/images/d
+val_depth: val/images/d
 
-# Depth map paths (relative to 'path') - REQUIRED FOR RGB-D TRAINING
-train_depth: train/images/d # Training depth maps directory
-val_depth: val/images/d # Validation depth maps directory
-test_depth: val/images/d # Test depth maps directory (optional)
-
-# Number of classes
+# 类别配置 (VisDrone 10类)
 nc: 10
 
-# Class names (VisDrone2019 categories)
 names:
-  0: pedestrian # 行人
-  1: people # 人群 (多个人聚集)
-  2: bicycle # 自行车
-  3: car # 小汽车
-  4: van # 面包车/商务车
-  5: truck # 卡车
-  6: tricycle # 三轮车
-  7: awning-tricycle # 带篷三轮车
-  8: bus # 公交车/大巴
-  9: motor # 摩托车/电动车
+  0: pedestrian
+  1: people
+  2: bicycle
+  3: car
+  4: van
+  5: truck
+  6: tricycle
+  7: awning-tricycle
+  8: bus
+  9: motor
 
-# Class mapping to RemDet paper (for comparison)
-# RemDet also uses VisDrone2019, so class definitions are identical
+# =====================================================================
+# RemDet Table 1 基准指标 (对齐目标)
+# =====================================================================
+# RemDet-X (640px, test=o, from scratch on VisDrone+UAVDT):
+#   AP^val_95 (AP@[0.5:0.95]):  29.9%
+#   AP^val_50 (AP@0.50):        48.3%  ← 主要对比指标
+#   AP^val_75 (AP@0.75):        31.0%
+#   AP^val_s (AP small):        19.5%  ← 小目标关键指标
+#   AP^val_m (AP medium):       44.1%
+#   AP^val_l (AP large):        58.6%
+#   Latency: 8.9 ms
+#   FLOPs: 114 G
+#
+# 我们的目标 (YOLO12-N/S-RGBD, VisDrone独立训练):
+#   - 在 VisDrone 独立训练 (6,471 张)
+#   - 使用 RGB-D 双模态
+#   - 评估时使用 pycocotools 生成 COCO 标准指标
+#   - 报告所有 RemDet 的指标项
 
-# ==================== Directory Structure Example ====================
+# =====================================================================
+# 数据集统计
+# =====================================================================
+train_samples: 6471
+val_samples: 548
+# =====================================================================
+# 备注
+# =====================================================================
+# 1. 深度图生成命令:
+#    python run_depth_anything_v2_I_mode.py \
+#      --images /data2/.../VisDrone2YOLO/train/images/rgb \
+#      --output /data2/.../VisDrone2YOLO/train/images/d \
+#      --batch 16 --device 0
 #
-# VisDrone2019-DET/
-# ├── images/
-# │   ├── train/
-# │   │   ├── 0000001_00000_d_0000001.jpg
-# │   │   ├── 0000001_00000_d_0000002.jpg
-# │   │   └── ...
-# │   ├── val/
-# │   │   ├── 0000006_00159_d_0000014.jpg
-# │   │   └── ...
-# │   └── test/  (optional)
-# │
-# ├── depths/  # YOU NEED TO GENERATE THESE
-# │   ├── train/
-# │   │   ├── 0000001_00000_d_0000001.png  # Same filename, different extension OK
-# │   │   ├── 0000001_00000_d_0000002.png
-# │   │   └── ...
-# │   ├── val/
-# │   │   ├── 0000006_00159_d_0000014.png
-# │   │   └── ...
-# │   └── test/  (optional)
-# │
-# └── labels/
-#     ├── train/
-#     │   ├── 0000001_00000_d_0000001.txt  # YOLO format (class x_center y_center width height)
-#     │   └── ...
-#     ├── val/
-#     │   └── ...
-#     └── test/  (optional)
+# 2. 评估使用 pycocotools 生成 COCO 标准指标
 #
-# ======================================================================
-
-# ==================== Depth Map Generation ====================
-#
-# VisDrone2019 does NOT provide depth maps by default. You need to:
-#
-# OPTION 1: Monocular Depth Estimation (Recommended)
-#   Use pre-trained models to estimate depth from RGB:
-#   - DPT (Dense Prediction Transformer): https://github.com/isl-org/DPT
-#   - MiDaS v3.1: https://github.com/isl-org/MiDaS
-#   - ZoeDepth: https://github.com/isl-org/ZoeDepth (best for outdoor scenes)
-#
-#   Example command (using MiDaS):
-#   ```bash
-#   python run_depth_estimation.py \
-#       --input_dir images/train \
-#       --output_dir depths/train \
-#       --model_type dpt_beit_large_512 \
-#       --optimize
-#   ```
-#
-# OPTION 2: Stereo Depth Estimation
-#   If you have stereo image pairs (VisDrone doesn't), use:
-#   - RAFT-Stereo: https://github.com/princeton-vl/RAFT-Stereo
-#   - PSMNet: https://github.com/JiaRenChang/PSMNet
-#
-# OPTION 3: Use Existing RGB-D Datasets
-#   Alternative UAV datasets with depth:
-#   - Middlebury Stereo Datasets (outdoor scenes)
-#   - DIML/CVL RGB-D Dataset (general scenes)
-#   - But these may not match VisDrone's distribution
-#
-# IMPORTANT: Depth Quality Matters!
-#   - Use high-quality depth estimation model (DPT > MiDaS > DepthAnything)
-#   - Ensure depth range is consistent across dataset
-#   - Apply median filtering to reduce noise (already done in YOLORGBDDataset)
-#   - Validate depth quality by visualizing depth maps
-#
-# ==============================================================
-
-# ==================== Data Validation Checklist ====================
-#
-# Before training, verify:
-# [✓] 1. RGB images exist in images/train and images/val
-# [✓] 2. Depth maps exist in depths/train and depths/val
-# [✓] 3. Each RGB image has a corresponding depth map with matching filename
-#        (Extensions can differ: image.jpg ↔ depth.png is OK)
-# [✓] 4. Labels exist in labels/train and labels/val
-# [✓] 5. Depth maps are single-channel grayscale images
-# [✓] 6. Depth values are in reasonable range (0-255 for uint8, or 0-65535 for uint16)
-# [✓] 7. Image and depth maps have same resolution (or at least same aspect ratio)
-#
-# Quick validation script:
-# ```python
-# from pathlib import Path
-# import cv2
-#
-# rgb_dir = Path("images/train")
-# depth_dir = Path("depths/train")
-#
-# for rgb_path in rgb_dir.glob("*.jpg"):
-#     depth_path = depth_dir / rgb_path.with_suffix(".png").name
-#     assert depth_path.exists(), f"Missing depth: {depth_path}"
-#
-#     rgb = cv2.imread(str(rgb_path))
-#     depth = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED)
-#
-#     assert rgb.shape[:2] == depth.shape[:2], f"Size mismatch: {rgb_path.name}"
-#     print(f"✓ {rgb_path.name}: RGB {rgb.shape}, Depth {depth.shape}")
-# ```
-#
-# ===================================================================
-
-# ==================== Training Configuration ====================
-#
-# This YAML file is loaded by train_depth.py. Example usage:
-#
-# Basic training:
-#   python train_depth.py --data data/visdrone-rgbd.yaml --epochs 300
-#
-# With custom settings:
-#   python train_depth.py \
-#       --data data/visdrone-rgbd.yaml \
-#       --model ultralytics/cfg/models/12/yolo12s-rgbd-v1.yaml \
-#       --batch 16 \
-#       --epochs 300 \
-#       --device 0,1  # Multi-GPU training
-#
-# Resume from checkpoint:
-#   python train_depth.py \
-#       --resume runs/train/exp1/weights/last.pt \
-#       --data data/visdrone-rgbd.yaml
-#
-# ================================================================
-
-# ==================== Expected Performance ====================
-#
-# Baseline (YOLOv12s RGB-only on VisDrone2019):
-#   - mAP@0.5: ~39.0%
-#   - mAP@0.5:0.95: ~26.0%
-#   - mAP_small: ~13.0%  (critical metric for UAV)
-#   - FPS: ~70 (RTX 4090)
-#
-# YOLOv12s-RGBD (this project, Phase 1 target):
-#   - mAP@0.5: 41-42% (+2-3 points from depth)
-#   - mAP@0.5:0.95: 28-29%
-#   - mAP_small: 15-16% (+2-3 points, depth helps small objects)
-#   - FPS: 50-60 (RTX 4090, slightly slower due to dual-modal)
-#
-# RemDet-X (AAAI2025 benchmark):
-#   - mAP@0.5: 45.2%
-#   - mAP@0.5:0.95: 30.8%
-#   - mAP_small: 21.3%  (strong small object performance)
-#   - FPS: ~65 (RTX 4090)
-#
-# Ultimate Goal (after Phase 2-6 optimizations):
-#   - mAP@0.5: 48-50% (+3-5 points over RemDet)
-#   - mAP_small: 25-27% (+4-6 points over RemDet)
-#   - FPS: >60 (maintain real-time performance)
-#
-# ==============================================================
-
-# ==================== Dataset Statistics (Reference) ====================
-#
-# VisDrone2019-DET Training Set:
-#   - Images: 6,471
-#   - Objects: 343,288 instances
-#   - Average objects per image: 53.1
-#   - Object size distribution:
-#       * Small (<32×32 px): 68.2%  ← Main challenge
-#       * Medium (32-96 px): 26.5%
-#       * Large (>96 px): 5.3%
-#   - Occlusion: 31.7% of objects occluded
-#   - Truncation: 12.8% of objects truncated
-#
-# VisDrone2019-DET Validation Set:
-#   - Images: 548
-#   - Objects: 28,447 instances
-#   - Similar distribution to training set
-#
-# Class Distribution (Training Set):
-#   - car: 135,873 (39.6%)  ← Dominant class
-#   - people: 89,621 (26.1%)
-#   - pedestrian: 52,464 (15.3%)
-#   - motor: 31,205 (9.1%)
-#   - van: 15,874 (4.6%)
-#   - tricycle: 9,243 (2.7%)
-#   - bus: 4,328 (1.3%)
-#   - truck: 3,942 (1.1%)
-#   - bicycle: 514 (0.1%)
-#   - awning-tricycle: 224 (0.1%)
-#
-# Insight: Severe class imbalance (car 39.6% vs bicycle 0.1%)
-#          → May need class-balanced sampling or loss weighting
-#
-# ========================================================================
-
-# ==================== Notes and Tips ====================
-#
-# 1. Depth Map Format:
-#    - Preferred: 16-bit PNG (0-65535 range, better precision)
-#    - Acceptable: 8-bit PNG/JPG (0-255 range, lower precision)
-#    - Avoid: Float32 TIFF (slow I/O, large file size)
-#
-# 2. Depth Normalization:
-#    - Handled automatically by YOLORGBDDataset._process_depth_channel
-#    - Pipeline: median(3×3) → gaussian(5×5) → percentile normalization
-#    - No need for manual preprocessing
-#
-# 3. Multi-Modal Alignment:
-#    - RGB and Depth MUST have same filename (extensions can differ)
-#    - Spatial alignment is critical (no misalignment tolerance)
-#    - If using estimated depth, ensure model input matches RGB resolution
-#
-# 4. Memory Considerations:
-#    - 6,471 training images × 4 channels = ~4GB RAM (uncompressed)
-#    - Use cache=False if RAM < 16GB
-#    - Use cache='disk' for balance between speed and memory
-#
-# 5. Training Time Estimate:
-#    - RTX 4090, batch=16, 300 epochs, cache='ram': ~18-20 hours
-#    - RTX 4090, batch=16, 300 epochs, cache=False: ~24-26 hours
-#    - Multi-GPU (4× RTX 4090), batch=64: ~6-8 hours
-#
-# 6. Debugging Tips:
-#    - Start with small epoch test (--epochs 10) to verify pipeline
-#    - Monitor gate_mean in RGBDStem (should be 0.3-0.7)
-#    - Visualize depth preprocessing results with val_depth.py
-#    - Check for NaN/Inf in losses (indicates instability)
-#
-# ========================================================
-
-# ==================== Version History ====================
-# v1.0 (2025-10-26): Initial version for yoloDepth Phase 1
-#                    - Basic RGB-D configuration
-#                    - VisDrone2019-DET class definitions
-#                    - Comprehensive documentation
-# =========================================================
-
-# ==================== TODO ====================
-# [ ] Generate depth maps for VisDrone2019 using MiDaS/DPT/ZoeDepth
-# [ ] Validate RGB-Depth pairing with validation script
-# [ ] Run 10-epoch test training to verify pipeline
-# [ ] Perform full 300-epoch training and log results to 改进记录.md
-# [ ] Compare with RemDet baseline on validation set
-# [ ] Visualize depth quality and fusion effectiveness
-# ==============================================
+# 3. 训练命令:
+#    python train_uav_joint.py \
+#      --data data/visdrone-rgbd.yaml \
+#      --cfg n --batch 16 --epochs 300 \
+#      --name visdrone_rgbd_n_300ep

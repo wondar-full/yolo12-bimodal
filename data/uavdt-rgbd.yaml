@@ -1,0 +1,76 @@
+# =====================================================================
+# UAVDT RGB-D 数据集配置 (独立训练 - 方案A)
+# =====================================================================
+# 训练方式: UAVDT 独立训练 (23,258 张,from scratch)
+# 对比目标: RemDet Table 2 (UAVDT benchmark)
+
+path: /data2/user/2024/lzy/Datasets/UAVDT_YOLO
+train: train/images/rgb # 23,258张
+val: val/images/rgb # 15,069张 (UAVDT M和S两个subset的组合)
+
+train_depth: train/images/d # 深度图路径
+val_depth: val/images/d
+
+# =====================================================================
+# 类别定义 (仅保留3类 - car/truck/bus)
+# =====================================================================
+# RemDet方案: 只训练车辆相关的3个类别
+# 映射关系 (对应到VisDrone的类别索引,便于后续可能的模型迁移):
+#   UAVDT cls 0 (car)   → VisDrone cls 3 (car)
+#   UAVDT cls 1 (truck) → VisDrone cls 5 (truck)
+#   UAVDT cls 2 (bus)   → VisDrone cls 8 (bus)
+
+nc: 3 # 3个类别
+
+names:
+  0: car
+  1: truck
+  2: bus
+
+# =====================================================================
+# RemDet Baseline (Table 2 - UAVDT Benchmark)
+# =====================================================================
+# RemDet-L (640px, test=o, from scratch on VisDrone+UAVDT, 在UAVDT上评估):
+#   AP@0.50:0.95:        20.6%
+#   AP@0.50:             34.5%  ← 主要对比指标
+#   AP@0.75:             20.5%
+#   AP_small:            12.6%
+#   AP_medium:           29.0%
+#   AP_large:            46.8%
+#
+# 训练目标 (yoloDepth-RGBD-N):
+#   AP@0.50: 36-37% (超越RemDet-L的34.5%)
+#   AP_small: 14-15% (提升小目标性能)
+#
+# 注意: UAVDT数据集相比VisDrone目标更少但场景更复杂
+#       - 平均每张图 ~5-10 个目标 (vs VisDrone的53个)
+#       - 更多遮挡和极端视角
+#       - 深度信息对3D空间理解更关键
+
+# =====================================================================
+# 数据集统计
+# =====================================================================
+train_samples: 23258
+val_samples: 15069 # M subset (2,934) + S subset (12,135)
+
+# =====================================================================
+# 备注
+# =====================================================================
+# 1. 深度图生成命令:
+#    python run_depth_anything_v2_I_mode.py \
+#      --images /data2/.../UAVDT_YOLO/train/images/rgb \
+#      --output /data2/.../UAVDT_YOLO/train/images/d \
+#      --batch 16 --device 0
+#
+# 2. 评估使用 pycocotools 生成 COCO 标准指标
+#
+# 3. 训练命令:
+#    python train_uav_joint.py \
+#      --data data/uavdt-rgbd.yaml \
+#      --cfg n --batch 16 --epochs 300 \
+#      --name uavdt_rgbd_n_300ep
+#
+# 4. UAVDT标注预处理:
+#    - 原始UAVDT包含5类 (car/truck/bus/group/person)
+#    - 需要过滤只保留car/truck/bus的标注
+#    - 重新映射类别ID: car→0, truck→1, bus→2
