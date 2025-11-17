@@ -326,7 +326,7 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="ultralytics/cfg/models/12/yolo12s-rgbd-v2.1-joint.yaml",
+        default="/data2/user/2024/lzy/yolo12-bimodal/ultralytics/cfg/models/12/yolo12s-rgbd-v1.yaml",
         help="Path to model config YAML"
     )
     parser.add_argument(

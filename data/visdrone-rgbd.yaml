@@ -16,14 +16,14 @@ path:
   # Example (Windows): F:/Datasets/VisDrone2019-DET
 
 # RGB image paths (relative to 'path')
-train: VisDrone2019-DET-train/images/rgb # Training RGB images directory
-val: VisDrone2019-DET-val/images/rgb # Validation RGB images directory
-test: VisDrone2019-DET-val/images/rgb # Test RGB images directory (optional)
+train: train/images/rgb # Training RGB images directory
+val: val/images/rgb # Validation RGB images directory
+test: val/images/rgb # Test RGB images directory (optional)
 
 # Depth map paths (relative to 'path') - REQUIRED FOR RGB-D TRAINING
-train_depth: VisDrone2019-DET-train/images/d # Training depth maps directory
-val_depth: VisDrone2019-DET-val/images/d # Validation depth maps directory
-test_depth: VisDrone2019-DET-val/images/d # Test depth maps directory (optional)
+train_depth: train/images/d # Training depth maps directory
+val_depth: val/images/d # Validation depth maps directory
+test_depth: val/images/d # Test depth maps directory (optional)
 
 # Number of classes
 nc: 10

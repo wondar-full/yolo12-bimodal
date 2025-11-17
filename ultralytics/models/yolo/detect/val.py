@@ -355,7 +355,7 @@ class DetectionValidator(BaseValidator):
             # GT框尺寸分类
             gt_areas = batch["target_areas"]  # (N_gt,) - 已经在_prepare_batch中过滤
             
-            # 🔍 Debug: 打印GT面积分布和全局统计
+            # 🔍 Debug: 打印GT面积分布
             if not hasattr(self, '_gt_areas_debug_printed'):
                 LOGGER.info(f"\n🔍 GT Areas Debug (First Batch):")
                 LOGGER.info(f"  GT areas: min={gt_areas.min().item():.1f}, max={gt_areas.max().item():.1f}, mean={gt_areas.mean().item():.1f}")
@@ -365,19 +365,9 @@ class DetectionValidator(BaseValidator):
                 LOGGER.info(f"  Sample areas (first 10): {sample_areas}")
                 self._gt_areas_debug_printed = True
             
-            # 🔍 累积全局统计 (整个验证集的尺度分布)
-            if not hasattr(self, '_global_gt_counts'):
-                self._global_gt_counts = {'small': 0, 'medium': 0, 'large': 0}
-                self._global_pred_counts = {'small': 0, 'medium': 0, 'large': 0}
-            
             gt_small_mask = gt_areas < small_thresh
             gt_medium_mask = (gt_areas >= small_thresh) & (gt_areas < medium_thresh)
             gt_large_mask = gt_areas >= medium_thresh
-            
-            # 🔍 累积全局计数
-            self._global_gt_counts['small'] += gt_small_mask.sum().item()
-            self._global_gt_counts['medium'] += gt_medium_mask.sum().item()
-            self._global_gt_counts['large'] += gt_large_mask.sum().item()
             
             # Pred框尺寸分类 (根据预测框自己的面积)
             # 🔧 Bug Fix: preds["bboxes"] 在 _prepare_batch 中已经转换为像素坐标
@@ -399,11 +389,6 @@ class DetectionValidator(BaseValidator):
             pred_small_mask = pred_areas < small_thresh  # 1024 pixels²
             pred_medium_mask = (pred_areas >= small_thresh) & (pred_areas < medium_thresh)  # 1024~9216
             pred_large_mask = pred_areas >= medium_thresh  # >=9216
-            
-            # 🔍 累积Pred全局计数
-            self._global_pred_counts['small'] += pred_small_mask.sum().item()
-            self._global_pred_counts['medium'] += pred_medium_mask.sum().item()
-            self._global_pred_counts['large'] += pred_large_mask.sum().item()
             
             # 计算分尺度TP (重新匹配)
             def _calc_size_tp(gt_mask, pred_mask):
@@ -457,32 +442,6 @@ class DetectionValidator(BaseValidator):
                 LOGGER.info(f"  Pred: Small={n_pred_small:>4}, Medium={n_pred_medium:>4}, Large={n_pred_large:>4}")
                 LOGGER.info(f"  TP:   Small={tp_small.shape[0]:>4}, Medium={tp_medium.shape[0]:>4}, Large={tp_large.shape[0]:>4}\n")
                 self._size_debug_printed = True
-            
-            # 🔍 在最后一个batch打印全局统计
-            if not hasattr(self, '_global_stats_printed'):
-                # 简单判断是否是最后一个batch (会在下一次调用时打印)
-                import atexit
-                def print_global_stats():
-                    if hasattr(self, '_global_gt_counts'):
-                        LOGGER.info(f"\n{'='*80}")
-                        LOGGER.info(f"📊 Global Size Distribution (Entire Validation Set):")
-                        LOGGER.info(f"  GT Objects:   Small={self._global_gt_counts['small']:>6}, "
-                                  f"Medium={self._global_gt_counts['medium']:>6}, "
-                                  f"Large={self._global_gt_counts['large']:>6}")
-                        LOGGER.info(f"  Pred Objects: Small={self._global_pred_counts['small']:>6}, "
-                                  f"Medium={self._global_pred_counts['medium']:>6}, "
-                                  f"Large={self._global_pred_counts['large']:>6}")
-                        total_gt = sum(self._global_gt_counts.values())
-                        total_pred = sum(self._global_pred_counts.values())
-                        LOGGER.info(f"  GT Distribution:   Small={100*self._global_gt_counts['small']/total_gt:.1f}%, "
-                                  f"Medium={100*self._global_gt_counts['medium']/total_gt:.1f}%, "
-                                  f"Large={100*self._global_gt_counts['large']/total_gt:.1f}%")
-                        LOGGER.info(f"  Pred Distribution: Small={100*self._global_pred_counts['small']/total_pred:.1f}%, "
-                                  f"Medium={100*self._global_pred_counts['medium']/total_pred:.1f}%, "
-                                  f"Large={100*self._global_pred_counts['large']/total_pred:.1f}%")
-                        LOGGER.info(f"{'='*80}\n")
-                atexit.register(print_global_stats)
-                self._global_stats_printed = True
             
             result.update({
                 "tp_small": tp_small,
