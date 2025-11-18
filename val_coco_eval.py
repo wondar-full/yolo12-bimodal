@@ -56,6 +56,7 @@ def create_coco_annotations(data_yaml, split='val'):
     
     dataset_root = Path(data['path'])
     img_dir = dataset_root / data[split]
+    print(f"{split} ++++++++++++++++++++++++++++++images: {img_dir}")
     label_dir = dataset_root / 'labels' / split
     
     nc = data['nc']
