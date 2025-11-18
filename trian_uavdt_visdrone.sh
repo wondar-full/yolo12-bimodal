@@ -25,20 +25,37 @@ python train_depth.py --name rgbd_v2.1_joint_300ep_x --device 4 --data /data2/us
 
 
 # 5. COCO评估测试
-python val_coco_eval.py --name visdrone_coco_eval_n --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_n/weights/best.pt --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml
-python val_coco_eval.py --name visdrone_coco_eval_m --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_m/weights/best.pt --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml
-python val_coco_eval.py --name visdrone_coco_eval_l --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_l/weights/best.pt --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml
-python val_coco_eval.py --name visdrone_coco_eval_x --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_x/weights/best.pt --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml
+python val_coco_standard.py \
+    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_n/weights/best.pt \
+    --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml \
+    --gt-json /data2/user/2024/lzy/Datasets/VisDrone2019-DET-COCO/annotations/VisDrone2019-DET_val_coco.json \
+    --name visdrone_coco_eval_n \
+    --batch 16 \
+    --device 0
 
-python val_coco_eval.py --name uavdt_coco_eval_n --weights runs/.../best.pt --data data/uavdt-rgbd.yaml
-python val_coco_eval.py --name uavdt_coco_eval_m --weights runs/.../best.pt --data data/uavdt-rgbd.yaml
-python val_coco_eval.py --name uavdt_coco_eval_l --weights runs/.../best.pt --data data/uavdt-rgbd.yaml
-python val_coco_eval.py --name uavdt_coco_eval_x --weights runs/.../best.pt --data data/uavdt-rgbd.yaml
+python val_coco_standard.py \
+    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_l/weights/best.pt \
+    --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml \
+    --gt-json /data2/user/2024/lzy/Datasets/VisDrone2019-DET-COCO/annotations/VisDrone2019-DET_val_coco.json \
+    --name visdrone_coco_eval_l \
+    --batch 16 \
+    --device 0
 
+python val_coco_standard.py \
+    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_x/weights/best.pt \
+    --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml \
+    --gt-json /data2/user/2024/lzy/Datasets/VisDrone2019-DET-COCO/annotations/VisDrone2019-DET_val_coco.json \
+    --name visdrone_coco_eval_x \
+    --batch 16 \
+    --device 0
 
-# 6. 完整训练 (300 epochs)
-nohup python train_uav_joint.py --data data/visdrone-rgbd.yaml --cfg n --epochs 300 
-nohup python train_uav_joint.py --data data/uavdt-rgbd.yaml --cfg n --epochs 300 
+python val_coco_standard.py \
+    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_n/weights/best.pt \
+    --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml \
+    --gt-json /data2/user/2024/lzy/Datasets/VisDrone2019-DET-COCO/annotations/VisDrone2019-DET_val_coco.json \
+    --name visdrone_coco_eval_n \
+    --batch 16 \
+    --device 0
 
 
 
