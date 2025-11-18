@@ -3,7 +3,8 @@
 """
 COCO标准评估脚本 (整合版 - 方案A)
 Step 1: 使用 model.val() 生成 predictions.json
-Step 2: 使用 pycocotools 加载现有的 val.json 和 predictions.json 进行COCO标准评估
+Step 2: 修正 predictions.json 中的 image_id 格式(匹配GT JSON)
+Step 3: 使用 pycocotools 加载现有的 val.json 和 predictions.json 进行COCO标准评估
 
 使用方法:
     # VisDrone 评估
@@ -190,7 +191,7 @@ def main():
     save_dir.mkdir(parents=True, exist_ok=True)
     
     print("="*80)
-    print("🚀 COCO标准评估 (两步法)")
+    print("🚀 COCO标准评估 (三步法)")
     print("="*80)
     print(f"📁 Weights:     {args.weights}")
     print(f"📁 Data YAML:   {args.data}")
@@ -213,12 +214,13 @@ def main():
     # Step 1: 运行 YOLO 验证生成 predictions.json
     # =================================================================
     print("="*80)
-    print("📝 Step 1/2: Running YOLO Validation to Generate predictions.json")
+    print("📝 Step 1/3: Running YOLO Validation to Generate predictions.json")
     print("="*80)
     
     model = YOLO(args.weights)
     
     # 运行验证 (save_json=True 会自动生成 predictions.json)
+    # 注意: Ultralytics会自动处理重复文件夹名(name, name2, name3...)
     results = model.val(
         data=args.data,
         imgsz=args.imgsz,
@@ -233,25 +235,157 @@ def main():
     
     print("   ✅ YOLO validation completed")
     
-    # 查找生成的 predictions.json
-    # Ultralytics 默认保存在 runs/val/{name}/predictions.json
-    pred_json_path = save_dir / 'predictions.json'
+    # 从results对象中获取实际保存路径
+    # results.save_dir 包含了Ultralytics实际使用的目录(可能有数字后缀)
+    actual_save_dir = Path(results.save_dir)
+    pred_json_path = actual_save_dir / 'predictions.json'
+    
+    print(f"   📂 Actual save directory: {actual_save_dir}")
     
     if not pred_json_path.exists():
         print(f"❌ Error: predictions.json not found at {pred_json_path}")
         print("   Please check if save_json=True worked correctly")
         sys.exit(1)
     
-    print(f"   📂 predictions.json saved to: {pred_json_path}")
+    print(f"   📂 predictions.json found: {pred_json_path}")
+    
+    # 更新save_dir为实际使用的目录
+    save_dir = actual_save_dir
     
     # =================================================================
-    # Step 2: 使用 pycocotools 进行 COCO 标准评估
+    # Step 2: 修正 predictions.json 的 image_id 格式
     # =================================================================
     print("\n" + "="*80)
-    print("📊 Step 2/2: Evaluating with pycocotools")
+    print("🔧 Step 2/3: Fixing predictions.json image_id format")
     print("="*80)
     
-    metrics = evaluate_with_pycocotools(args.gt_json, str(pred_json_path))
+    # 读取 GT JSON 获取正确的 image_id 映射
+    with open(args.gt_json, 'r') as f:
+        gt_data = json.load(f)
+    
+    # 创建文件名 -> image_id 的映射
+    # 同时创建不带扩展名的版本,因为predictions.json可能不包含扩展名
+    filename_to_id = {}
+    stem_to_id = {}  # 不带扩展名的映射
+    for img in gt_data['images']:
+        # GT JSON 中的 file_name 可能包含路径或只有文件名
+        filename = Path(img['file_name']).name
+        stem = Path(img['file_name']).stem  # 不带扩展名
+        filename_to_id[filename] = img['id']
+        stem_to_id[stem] = img['id']
+    
+    print(f"   📊 Loaded {len(filename_to_id)} image mappings from GT JSON")
+    print(f"   📊 Created {len(stem_to_id)} stem (no extension) mappings")
+    
+    # 读取 Ultralytics 生成的 predictions.json
+    with open(pred_json_path, 'r') as f:
+        pred_data = json.load(f)
+    
+    print(f"   📊 Original predictions: {len(pred_data)} detections")
+    
+    # 修正 image_id
+    fixed_predictions = []
+    skipped = 0
+    img_id_set = set(img['id'] for img in gt_data['images'])
+    
+    # 调试: 打印前几个预测的image_id格式
+    if len(pred_data) > 0:
+        print(f"   🔍 Sample prediction image_id formats:")
+        for i, pred in enumerate(pred_data[:3]):
+            print(f"      [{i}] image_id: {pred['image_id']} (type: {type(pred['image_id']).__name__})")
+        print(f"   🔍 Sample GT filename formats:")
+        for i, img in enumerate(gt_data['images'][:3]):
+            print(f"      [{i}] id={img['id']}, file_name={img['file_name']}")
+    
+    for pred in pred_data:
+        # Ultralytics 的 predictions.json 中 image_id 可能是文件路径或整数
+        img_id = pred['image_id']
+        
+        # 情况1: 如果已经是整数且在GT中,直接使用
+        if isinstance(img_id, int) and img_id in img_id_set:
+            fixed_predictions.append(pred)
+            continue
+        
+        # 情况2: 如果是字符串(文件路径或文件名)
+        if isinstance(img_id, str):
+            # 先尝试提取完整文件名(带扩展名)
+            filename = Path(img_id).name
+            if filename in filename_to_id:
+                pred['image_id'] = filename_to_id[filename]
+                fixed_predictions.append(pred)
+                continue
+            
+            # 如果没匹配,尝试不带扩展名的stem
+            stem = Path(img_id).stem
+            if stem in stem_to_id:
+                pred['image_id'] = stem_to_id[stem]
+                fixed_predictions.append(pred)
+                continue
+            
+            # 如果还没匹配,尝试添加常见扩展名
+            for ext in ['.jpg', '.png', '.jpeg']:
+                test_filename = stem + ext
+                if test_filename in filename_to_id:
+                    pred['image_id'] = filename_to_id[test_filename]
+                    fixed_predictions.append(pred)
+                    break
+            else:
+                # 所有尝试都失败
+                skipped += 1
+                if skipped <= 5:
+                    print(f"   ⚠️  Cannot match image_id: {img_id}")
+            continue
+        
+        # 情况3: 如果是整数但不在GT中,尝试作为索引(从0或1开始)
+        if isinstance(img_id, int):
+            # 尝试作为1-based索引
+            if 0 < img_id <= len(gt_data['images']):
+                pred['image_id'] = gt_data['images'][img_id - 1]['id']
+                fixed_predictions.append(pred)
+                continue
+            # 尝试作为0-based索引
+            if 0 <= img_id < len(gt_data['images']):
+                pred['image_id'] = gt_data['images'][img_id]['id']
+                fixed_predictions.append(pred)
+                continue
+        
+        # 无法匹配
+        skipped += 1
+        if skipped <= 5:  # 只打印前5个无法匹配的
+            print(f"   ⚠️  Cannot match image_id: {img_id}")
+    
+    print(f"   ✅ Fixed {len(fixed_predictions)} predictions")
+    if skipped > 0:
+        print(f"   ⚠️  Skipped {skipped} predictions (no matching image in GT)")
+        if skipped > 100:
+            print(f"      This is unusual! Please check the image_id format.")
+    
+    # 保存修正后的 predictions.json
+    fixed_pred_json_path = save_dir / 'predictions_fixed.json'
+    
+    if len(fixed_predictions) == 0:
+        print(f"\n❌ ERROR: No predictions could be matched to GT images!")
+        print(f"   This usually means:")
+        print(f"   1. The image filenames in GT JSON don't match the actual image files")
+        print(f"   2. The predictions.json format is unexpected")
+        print(f"\n   Please check:")
+        print(f"   - Original predictions.json: {pred_json_path}")
+        print(f"   - GT JSON: {args.gt_json}")
+        sys.exit(1)
+    
+    with open(fixed_pred_json_path, 'w') as f:
+        json.dump(fixed_predictions, f)
+    
+    print(f"   💾 Saved fixed predictions to: {fixed_pred_json_path}")
+    
+    # =================================================================
+    # Step 3: 使用 pycocotools 进行 COCO 标准评估
+    # =================================================================
+    print("\n" + "="*80)
+    print("📊 Step 3/3: Evaluating with pycocotools")
+    print("="*80)
+    
+    metrics = evaluate_with_pycocotools(args.gt_json, str(fixed_pred_json_path))
     
     if metrics is None:
         print("❌ Evaluation failed (pycocotools not available)")
