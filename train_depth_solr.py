@@ -15,18 +15,25 @@ Key Features:
 Target: Close the gap with RemDet on VisDrone (especially AP_m: medium objects)
 
 Usage:
-    Quick test (10 epochs):
-        python train_depth_solr.py --data visdrone-rgbd.yaml --epochs 10
+    Quick test (10 epochs, nano model):
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg n --epochs 10
     
-    Full training (300 epochs):
-        python train_depth_solr.py --data visdrone-rgbd.yaml --epochs 300
+    Full training (300 epochs, small model):
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg s --epochs 300
     
-    Custom SOLR weights:
-        python train_depth_solr.py --data visdrone-rgbd.yaml \\
-            --small_weight 2.5 --medium_weight 2.0 --large_weight 1.0
+    Medium model with custom SOLR weights:
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg m \\
+            --small_weight 2.5 --medium_weight 2.5 --large_weight 1.0
     
-    Multi-GPU training:
-        python train_depth_solr.py --data visdrone-rgbd.yaml --device 0,1,2,3
+    Multi-size training (compare n/s/m/l/x):
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg n --name solr_n_300ep
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg s --name solr_s_300ep
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg m --name solr_m_300ep --batch 8
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg l --name solr_l_300ep --batch 4
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg x --name solr_x_300ep --batch 2
+    
+    Multi-GPU training (large model):
+        python train_depth_solr.py --data visdrone-rgbd.yaml --cfg l --device 0,1,2,3
 
 Created: 2025-11-19
 Author: Generated for yolo12-bimodal project
@@ -141,8 +148,15 @@ def parse_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="ultralytics/cfg/models/12/yolo12n-rgbd-v1.yaml",
-        help="Model configuration YAML file path"
+        default="ultralytics/cfg/models/12/yolo12-rgbd-v2.1-universal.yaml",
+        help="Model configuration YAML file path (universal config recommended)"
+    )
+    parser.add_argument(
+        "--cfg",
+        type=str,
+        default="n",
+        help="Model size (n/s/m/l/x), used with universal config. "
+             "n=nano(~3M), s=small(~11M), m=medium(~22M), l=large(~44M), x=xlarge(~66M)"
     )
     parser.add_argument(
         "--weights",
@@ -480,9 +494,25 @@ def main():
             LOGGER.info(f"Loading pretrained weights from {args.weights}")
             model = YOLO(args.weights)
         else:
-            # Train from scratch
+            # Train from scratch with universal config
             LOGGER.info(f"Training from scratch with model config: {args.model}")
-            model = YOLO(args.model)
+            model = YOLO(args.model, task='detect')
+            
+            # Set model size if --cfg is specified
+            if args.cfg:
+                model.model_name = f"yolo12{args.cfg}"
+                LOGGER.info(f"Using model size: YOLO12-{args.cfg.upper()} (with SOLR loss)")
+                
+                # Print expected model stats
+                size_info = {
+                    'n': '~3M params, ~8G FLOPs (对标RemDet-Tiny)',
+                    's': '~11M params, ~46G FLOPs (对标RemDet-S)',
+                    'm': '~22M params, ~92G FLOPs (对标RemDet-M)',
+                    'l': '~44M params, ~184G FLOPs (对标RemDet-L)',
+                    'x': '~66M params, ~276G FLOPs (对标RemDet-X)',
+                }
+                if args.cfg in size_info:
+                    LOGGER.info(f"Expected model size: {size_info[args.cfg]}")
     
     # Train with SOLR loss
     LOGGER.info("Starting training with SOLR loss...")
