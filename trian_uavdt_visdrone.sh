@@ -10,10 +10,10 @@ python train_uav_joint.py --name uavdt_x --data /data2/user/2024/lzy/yolo12-bimo
 
 
 
-python train_uav_joint.py --name visdrone_n --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 0 --pretrained /data2/user/2024/lzy/yolo12-bimodal/models/yolo12n.pt --cfg n --batch 16 --epochs 300
-python train_uav_joint.py --name visdrone_m --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 1 --pretrained /data2/user/2024/lzy/yolo12-bimodal/models/yolo12m.pt --cfg m --batch 16 --epochs 300
-python train_uav_joint.py --name visdrone_l --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 2 --pretrained /data2/user/2024/lzy/yolo12-bimodal/models/yolo12l.pt --cfg l --batch 16 --epochs 300
-python train_uav_joint.py --name visdrone_x --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 3 --pretrained /data2/user/2024/lzy/yolo12-bimodal/models/yolo12x.pt --cfg x --batch 8 --epochs 300
+python train_uav_joint.py --name visdrone_n --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 4 --pretrained /data2/user/2024/lzy/yolo12-bimodal/models/yolo12n.pt --cfg n --batch 16 --epochs 300
+python train_uav_joint.py --name visdrone_m --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 5 --pretrained /data2/user/2024/lzy/yolo12-bimodal/models/yolo12m.pt --cfg m --batch 16 --epochs 300
+python train_uav_joint.py --name visdrone_l --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 6 --pretrained /data2/user/2024/lzy/yolo12-bimodal/models/yolo12l.pt --cfg l --batch 16 --epochs 300
+python train_uav_joint.py --name visdrone_x --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 7 --pretrained /data2/user/2024/lzy/yolo12-bimodal/models/yolo12x.pt --cfg x --batch 8 --epochs 300
 
 
 
