@@ -40,23 +40,25 @@ class SOLRTrainer(DetectionTrainer):
         # ✅ 第一次修复: 处理了 overrides=None
         if overrides is None:
             overrides = {}
-        
+
         self.solr_weights = {
             'small_weight': overrides.pop('small_weight', 2.5),
             ...
         }
-        
+
         # ❌ 遗留问题: cfg 也可能是 None!
         super().__init__(cfg, overrides, _callbacks)
 ```
 
 **问题分析**:
+
 - **场景 1**: 使用预训练权重时 (`--weights yolo12n.pt`)
 - **调用链**: `YOLO(weights).train()` → 从权重文件加载模型 → `cfg=None`
 - **崩溃点**: `ultralytics/cfg/__init__.py:314` 中的 `if "save_dir" not in cfg`
 - **原因**: `cfg=None` 时,`in` 操作符无法对 NoneType 使用
 
 **场景 2 (第一次修复遗留)**:
+
 - 第一次只修复了 `overrides`,但 `cfg` 也可能是 None
 - 当加载 `.pt` 权重文件时,YOLO 内部不会传递 cfg 参数
 - 导致 `cfg=None` 传递到 `get_cfg()` 函数,触发 TypeError
@@ -72,7 +74,7 @@ class SOLRTrainer(DetectionTrainer):
     def __init__(self, cfg=None, overrides=None, _callbacks=None):
         """
         Initialize SOLR trainer.
-        
+
         Args:
             cfg: Configuration dict or path to YAML file (can be None when loading pretrained weights)
             overrides: Dict of hyperparameter overrides (can be None)
@@ -84,7 +86,7 @@ class SOLRTrainer(DetectionTrainer):
             cfg = {}
         if overrides is None:
             overrides = {}
-        
+
         # Extract SOLR parameters from overrides before calling super().__init__
         self.solr_weights = {
             'small_weight': overrides.pop('small_weight', 2.5),
@@ -93,23 +95,26 @@ class SOLRTrainer(DetectionTrainer):
             'small_thresh': overrides.pop('small_thresh', 32),
             'large_thresh': overrides.pop('large_thresh', 96),
         }
-        
+
         # ✅ Call parent constructor with GUARANTEED non-None dicts
         super().__init__(cfg, overrides, _callbacks)
 ```
 
 ### 关键改进
 
-1. **双重空值检查**: 
+1. **双重空值检查**:
+
    ```python
    if cfg is None:
        cfg = {}
    if overrides is None:
        overrides = {}
    ```
+
    - 确保 cfg 和 overrides **始终是字典**,即使初始为 None
 
 2. **统一处理**: 无论参数是否为空,都执行 pop 操作
+
    - pop 的第二个参数提供默认值,不会报错
 
 3. **参数隔离**: SOLR 参数被 pop 掉,不会传给父类
@@ -119,11 +124,11 @@ class SOLRTrainer(DetectionTrainer):
 
 ## 📊 修复对比总结
 
-| 版本 | overrides 处理 | cfg 处理 | 预训练权重 | 状态 |
-|------|---------------|----------|-----------|------|
-| 原始代码 | ❌ `if overrides:` 逻辑错误 | ❌ 无检查 | ❌ 崩溃 | 崩溃 |
-| 第一次修复 | ✅ `if overrides is None` | ❌ 无检查 | ❌ 崩溃 | 仍然崩溃 |
-| **第二次修复** | ✅ `if overrides is None` | ✅ `if cfg is None` | ✅ 正常 | **完全正常** |
+| 版本           | overrides 处理              | cfg 处理            | 预训练权重 | 状态         |
+| -------------- | --------------------------- | ------------------- | ---------- | ------------ |
+| 原始代码       | ❌ `if overrides:` 逻辑错误 | ❌ 无检查           | ❌ 崩溃    | 崩溃         |
+| 第一次修复     | ✅ `if overrides is None`   | ❌ 无检查           | ❌ 崩溃    | 仍然崩溃     |
+| **第二次修复** | ✅ `if overrides is None`   | ✅ `if cfg is None` | ✅ 正常    | **完全正常** |
 
 ---
 
