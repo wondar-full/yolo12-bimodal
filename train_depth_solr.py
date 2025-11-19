@@ -82,15 +82,18 @@ class SOLRTrainer(DetectionTrainer):
         Initialize SOLR trainer.
         
         Args:
-            cfg: Configuration dict or path to YAML file
-            overrides: Dict of hyperparameter overrides
+            cfg: Configuration dict or path to YAML file (can be None when loading pretrained weights)
+            overrides: Dict of hyperparameter overrides (can be None)
             _callbacks: Optional callbacks for training events
         """
-        # Extract SOLR parameters from overrides before calling super().__init__
-        # Important: Use default values if overrides is None
+        # CRITICAL: Ensure both cfg and overrides are dicts, not None
+        # When loading pretrained weights (e.g., yolo12n.pt), both may be None
+        if cfg is None:
+            cfg = {}
         if overrides is None:
             overrides = {}
         
+        # Extract SOLR parameters from overrides before calling super().__init__
         self.solr_weights = {
             'small_weight': overrides.pop('small_weight', 2.5),
             'medium_weight': overrides.pop('medium_weight', 2.0),
@@ -99,7 +102,7 @@ class SOLRTrainer(DetectionTrainer):
             'large_thresh': overrides.pop('large_thresh', 96),
         }
         
-        # Call parent constructor
+        # Call parent constructor with guaranteed non-None dicts
         super().__init__(cfg, overrides, _callbacks)
     
     def set_model_attributes(self):

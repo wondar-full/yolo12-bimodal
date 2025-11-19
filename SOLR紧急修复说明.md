@@ -1,23 +1,23 @@
-# 🚨 SOLR 训练脚本紧急修复
+# 🚨 SOLR 训练脚本紧急修复 (第二次修复)
 
-> **问题**: `TypeError: argument of type 'NoneType' is not iterable`  
-> **修复时间**: 2025-11-19  
-> **影响**: train_depth_solr.py 无法正常启动训练  
-> **状态**: ✅ 已修复
+> **问题**: `TypeError: argument of type 'NoneType' is not iterable` (cfg 参数为 None)  
+> **修复时间**: 2025-11-19 (二次修复)  
+> **影响**: train_depth_solr.py 无法正常启动训练 (使用预训练权重时)  
+> **状态**: ✅ 已完全修复
 
 ---
 
-## 🔴 错误信息
+## 🔴 错误信息 (第二次)
 
 ```
 Traceback (most recent call last):
-  File "/data2/user/2024/lzy/yolo12-bimodal/train_depth_solr.py", line 537, in <module>
+  File "/data2/user/2024/lzy/yolo12-bimodal/train_depth_solr.py", line 539, in <module>
     main()
-  File "/data2/user/2024/lzy/yolo12-bimodal/train_depth_solr.py", line 519, in main
+  File "/data2/user/2024/lzy/yolo12-bimodal/train_depth_solr.py", line 521, in main
     results = model.train(
   File "/data2/user/2024/lzy/yolo12-bimodal/ultralytics/engine/model.py", line 795, in train
     self.trainer = (trainer or self._smart_load("trainer"))(overrides=args, _callbacks=self.callbacks)
-  File "/data2/user/2024/lzy/yolo12-bimodal/train_depth_solr.py", line 101, in __init__
+  File "/data2/user/2024/lzy/yolo12-bimodal/train_depth_solr.py", line 103, in __init__
     super().__init__(cfg, overrides, _callbacks)
   File "/data2/user/2024/lzy/yolo12-bimodal/ultralytics/models/yolo/detect/train.py", line 65, in __init__
     super().__init__(cfg, overrides, _callbacks)
@@ -32,63 +32,60 @@ TypeError: argument of type 'NoneType' is not iterable
 
 ## 🔍 问题原因
 
-### 错误的代码 (修复前)
+### 第一次修复 (不完整)
 
 ```python
 class SOLRTrainer(DetectionTrainer):
     def __init__(self, cfg=None, overrides=None, _callbacks=None):
-        # ❌ 问题: 如果overrides为空,self.solr_weights会是空字典
-        self.solr_weights = {}
-        if overrides:  # ← 这里的问题!
-            self.solr_weights = {
-                'small_weight': overrides.pop('small_weight', 2.5),
-                ...
-            }
-
-        # 当overrides有SOLR参数时,pop会移除它们
-        # 但如果overrides只有SOLR参数,pop后overrides就变空了
-        # 然后传给super().__init__(cfg, overrides, _callbacks)
-        # 导致cfg参数传递异常
+        # ✅ 第一次修复: 处理了 overrides=None
+        if overrides is None:
+            overrides = {}
+        
+        self.solr_weights = {
+            'small_weight': overrides.pop('small_weight', 2.5),
+            ...
+        }
+        
+        # ❌ 遗留问题: cfg 也可能是 None!
         super().__init__(cfg, overrides, _callbacks)
 ```
 
-### 触发条件
+**问题分析**:
+- **场景 1**: 使用预训练权重时 (`--weights yolo12n.pt`)
+- **调用链**: `YOLO(weights).train()` → 从权重文件加载模型 → `cfg=None`
+- **崩溃点**: `ultralytics/cfg/__init__.py:314` 中的 `if "save_dir" not in cfg`
+- **原因**: `cfg=None` 时,`in` 操作符无法对 NoneType 使用
 
-```python
-# 当你这样调用时:
-model.train(
-    data='visdrone-rgbd.yaml',
-    epochs=300,
-    batch=16,
-    small_weight=2.5,   # ← SOLR参数
-    medium_weight=2.0,  # ← SOLR参数
-    large_weight=1.0,   # ← SOLR参数
-    small_thresh=32,    # ← SOLR参数
-    large_thresh=96,    # ← SOLR参数
-    trainer=SOLRTrainer
-)
-
-# 问题流程:
-# 1. Ultralytics将所有参数打包到 overrides 字典
-# 2. SOLRTrainer.__init__ 执行 overrides.pop('small_weight', 2.5)
-# 3. 5个SOLR参数被pop掉后,overrides可能变空或接近空
-# 4. 传给父类的overrides不完整,导致cfg处理异常
-```
+**场景 2 (第一次修复遗留)**:
+- 第一次只修复了 `overrides`,但 `cfg` 也可能是 None
+- 当加载 `.pt` 权重文件时,YOLO 内部不会传递 cfg 参数
+- 导致 `cfg=None` 传递到 `get_cfg()` 函数,触发 TypeError
 
 ---
 
-## ✅ 修复方案
+## ✅ 修复方案 (第二次 - 完全修复)
 
 ### 正确的代码 (修复后)
 
 ```python
 class SOLRTrainer(DetectionTrainer):
     def __init__(self, cfg=None, overrides=None, _callbacks=None):
-        # ✅ 修复1: 确保overrides不为None
+        """
+        Initialize SOLR trainer.
+        
+        Args:
+            cfg: Configuration dict or path to YAML file (can be None when loading pretrained weights)
+            overrides: Dict of hyperparameter overrides (can be None)
+            _callbacks: Optional callbacks for training events
+        """
+        # ✅ CRITICAL FIX: Ensure BOTH cfg and overrides are dicts, not None
+        # When loading pretrained weights (e.g., yolo12n.pt), both may be None
+        if cfg is None:
+            cfg = {}
         if overrides is None:
             overrides = {}
-
-        # ✅ 修复2: 提取SOLR参数,使用pop移除(避免传给父类)
+        
+        # Extract SOLR parameters from overrides before calling super().__init__
         self.solr_weights = {
             'small_weight': overrides.pop('small_weight', 2.5),
             'medium_weight': overrides.pop('medium_weight', 2.0),
@@ -96,23 +93,37 @@ class SOLRTrainer(DetectionTrainer):
             'small_thresh': overrides.pop('small_thresh', 32),
             'large_thresh': overrides.pop('large_thresh', 96),
         }
-
-        # ✅ 修复3: 现在overrides只包含标准YOLO参数,安全传递
+        
+        # ✅ Call parent constructor with GUARANTEED non-None dicts
         super().__init__(cfg, overrides, _callbacks)
 ```
 
 ### 关键改进
 
-1. **空值检查**: `if overrides is None: overrides = {}`
+1. **双重空值检查**: 
+   ```python
+   if cfg is None:
+       cfg = {}
+   if overrides is None:
+       overrides = {}
+   ```
+   - 确保 cfg 和 overrides **始终是字典**,即使初始为 None
 
-   - 确保 overrides 始终是字典,即使初始为 None
-
-2. **统一处理**: 无论 overrides 是否为空,都执行 pop 操作
-
+2. **统一处理**: 无论参数是否为空,都执行 pop 操作
    - pop 的第二个参数提供默认值,不会报错
 
 3. **参数隔离**: SOLR 参数被 pop 掉,不会传给父类
    - 避免父类收到未知参数警告
+
+---
+
+## 📊 修复对比总结
+
+| 版本 | overrides 处理 | cfg 处理 | 预训练权重 | 状态 |
+|------|---------------|----------|-----------|------|
+| 原始代码 | ❌ `if overrides:` 逻辑错误 | ❌ 无检查 | ❌ 崩溃 | 崩溃 |
+| 第一次修复 | ✅ `if overrides is None` | ❌ 无检查 | ❌ 崩溃 | 仍然崩溃 |
+| **第二次修复** | ✅ `if overrides is None` | ✅ `if cfg is None` | ✅ 正常 | **完全正常** |
 
 ---
 
