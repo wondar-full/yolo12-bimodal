@@ -87,15 +87,17 @@ class SOLRTrainer(DetectionTrainer):
             _callbacks: Optional callbacks for training events
         """
         # Extract SOLR parameters from overrides before calling super().__init__
-        self.solr_weights = {}
-        if overrides:
-            self.solr_weights = {
-                'small_weight': overrides.pop('small_weight', 2.5),
-                'medium_weight': overrides.pop('medium_weight', 2.0),
-                'large_weight': overrides.pop('large_weight', 1.0),
-                'small_thresh': overrides.pop('small_thresh', 32),
-                'large_thresh': overrides.pop('large_thresh', 96),
-            }
+        # Important: Use default values if overrides is None
+        if overrides is None:
+            overrides = {}
+        
+        self.solr_weights = {
+            'small_weight': overrides.pop('small_weight', 2.5),
+            'medium_weight': overrides.pop('medium_weight', 2.0),
+            'large_weight': overrides.pop('large_weight', 1.0),
+            'small_thresh': overrides.pop('small_thresh', 32),
+            'large_thresh': overrides.pop('large_thresh', 96),
+        }
         
         # Call parent constructor
         super().__init__(cfg, overrides, _callbacks)
