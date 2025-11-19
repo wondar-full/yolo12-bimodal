@@ -86,14 +86,14 @@ class SOLRTrainer(DetectionTrainer):
             overrides: Dict of hyperparameter overrides (can be None)
             _callbacks: Optional callbacks for training events
         """
-        # CRITICAL: Ensure both cfg and overrides are dicts, not None
-        # When loading pretrained weights (e.g., yolo12n.pt), both may be None
-        if cfg is None:
-            cfg = {}
+        # CRITICAL FIX: Only initialize overrides, keep cfg as-is
+        # cfg=None triggers Ultralytics to load default config (correct behavior)
+        # cfg={} triggers strict validation mode (incorrect, causes SyntaxError)
         if overrides is None:
             overrides = {}
         
         # Extract SOLR parameters from overrides before calling super().__init__
+        # Use pop() to remove them so parent class doesn't receive unknown params
         self.solr_weights = {
             'small_weight': overrides.pop('small_weight', 2.5),
             'medium_weight': overrides.pop('medium_weight', 2.0),
@@ -102,7 +102,7 @@ class SOLRTrainer(DetectionTrainer):
             'large_thresh': overrides.pop('large_thresh', 96),
         }
         
-        # Call parent constructor with guaranteed non-None dicts
+        # Pass cfg as-is (None or path), let parent handle it correctly
         super().__init__(cfg, overrides, _callbacks)
     
     def set_model_attributes(self):
