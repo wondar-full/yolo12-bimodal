@@ -95,6 +95,7 @@ def parse_args():
     # Augmentation (RemDet-aligned)
     parser.add_argument("--mosaic", type=float, default=1.0)
     parser.add_argument("--mixup", type=float, default=0.15)
+    parser.add_argument("--copy_paste", type=float, default=0.0, help="CopyPaste probability (0.0-1.0)")
     parser.add_argument("--close_mosaic", type=int, default=10)
     
     # Experiment
@@ -127,6 +128,7 @@ def main():
     LOGGER.info(f"Weights: {args.weights if args.weights else 'None (from scratch)'}")
     LOGGER.info(f"Epochs: {args.epochs}, Batch: {args.batch}, Device: {args.device}")
     LOGGER.info(f"SOLR: small={args.small_weight}x, medium={args.medium_weight}x, large={args.large_weight}x")
+    LOGGER.info(f"Augmentation: mosaic={args.mosaic}, mixup={args.mixup}, copy_paste={args.copy_paste}")
     LOGGER.info("=" * 70)
     
     # Initialize model
@@ -174,6 +176,7 @@ def main():
         # Augmentation (RemDet-aligned)
         mosaic=args.mosaic,
         mixup=args.mixup,
+        copy_paste=args.copy_paste,  # CopyPaste augmentation for small objects
         close_mosaic=args.close_mosaic,
         
         # Hardware
