@@ -81,6 +81,8 @@ from .conv import (
     SpatialAttention,
 )
 from .geometry import GeometryPriorGenerator
+from .ggfe import GGFE
+from .rgbd_ggfe_fusion import RGBDGGFEFusion
 from .head import (
     OBB,
     Classify,
@@ -120,9 +122,11 @@ __all__ = (
     "DFL",
     "ELAN1",
     "GeometryPriorGenerator",
+    "GGFE",
     "MLP",
     "OBB",
     "PSA",
+    "RGBDGGFEFusion",
     "RGBDMidFusion",
     "RGBDStem",
     "SPP",
