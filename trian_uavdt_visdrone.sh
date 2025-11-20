@@ -24,36 +24,40 @@ python train_depth.py --name rgbd_v2.1_joint_300ep_l --device 3 --data /data2/us
 python train_depth.py --name rgbd_v2.1_joint_300ep_x --device 4 --data /data2/user/2024/lzy/yolo12-bimodal/data/uav-joint-rgbd.yaml --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12x.pt --batch 8 --epochs 300
 train_depth_solr.py
 
+python train_depth_solr_v2.py --cfg n --medium_weight 2.5 --copy_paste 0.1 --epochs 300
 
-python train_depth_solr_v2.py --name visdrone_solr_n --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 4 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12n.pt --cfg n --batch 16 --epochs 300
-python train_depth_solr_v2.py --name visdrone_solr_m --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 5 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12m.pt --cfg m --batch 16 --epochs 300
-python train_depth_solr_v2.py --name visdrone_solr_l --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 6 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12l.pt --cfg l --batch 16 --epochs 300
-python train_depth_solr_v2.py --name visdrone_solr_x --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 1 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12x.pt --cfg x --batch 8 --epochs 300
+python train_depth_solr_v2.py --name visdrone_solr_n --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 4 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12n.pt --cfg n --medium_weight 2.5 --copy_paste 0.1 --batch 16 --epochs 300
+python train_depth_solr_v2.py --name visdrone_solr_l --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 6 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12l.pt --cfg l --medium_weight 2.5 --copy_paste 0.1 --batch 16 --epochs 300
+python train_depth_solr_v2.py --name visdrone_solr_x --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 5 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12x.pt --cfg x --medium_weight 2.5 --copy_paste 0.1 --batch 8 --epochs 300
 
+
+python train_depth_solr_v2.py --name visdrone_solr_n --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 4 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12n.pt --cfg n --medium_weight 2.5 --batch 16 --epochs 300
+python train_depth_solr_v2.py --name visdrone_solr_l --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 6 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12l.pt --cfg l --medium_weight 2.5 --batch 16 --epochs 300
+python train_depth_solr_v2.py --name visdrone_solr_x --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml --device 5 --weights /data2/user/2024/lzy/yolo12-bimodal/models/yolo12x.pt --cfg x --medium_weight 2.5 --batch 8 --epochs 300
 # 5. COCO评估测试
 python val_coco_standard.py \
-    --weights //data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_solr_l/weights/best.pt \
+    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_solr_l4/weights/best.pt \
     --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml \
     --gt-json /data2/user/2024/lzy/Datasets/VisDrone2019-DET-COCO/annotations/VisDrone2019-DET_val_coco.json \
     --name visdrone_coco_eval_splr_l \
     --batch 16 \
-    --device 2
+    --device 4
 
 python val_coco_standard.py \
-    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_solr_n2/weights/best.pt \
+    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_solr_n5/weights/best.pt \
     --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml \
     --gt-json /data2/user/2024/lzy/Datasets/VisDrone2019-DET-COCO/annotations/VisDrone2019-DET_val_coco.json \
     --name visdrone_coco_eval_solr_n \
     --batch 16 \
-    --device 3
+    --device 4
 
 python val_coco_standard.py \
-    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_x/weights/best.pt \
+    --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_solr_x5/weights/best.pt \
     --data /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml \
     --gt-json /data2/user/2024/lzy/Datasets/VisDrone2019-DET-COCO/annotations/VisDrone2019-DET_val_coco.json \
-    --name visdrone_coco_eval_x \
+    --name visdrone_coco_eval_solr_x \
     --batch 16 \
-    --device 0
+    --device 4
 
 python val_coco_standard.py \
     --weights /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_n/weights/best.pt \

@@ -1,0 +1,23 @@
+================================================================================
+VisDrone COCO Evaluation Report
+================================================================================
+
+Model: /data2/user/2024/lzy/yolo12-bimodal/runs/train/visdrone_solr_x5/weights/best.pt
+Data:  /data2/user/2024/lzy/yolo12-bimodal/data/visdrone-rgbd.yaml
+GT:    /data2/user/2024/lzy/Datasets/VisDrone2019-DET-COCO/annotations/VisDrone2019-DET_val_coco.json
+
+Main Metrics:
+--------------------------------------------------------------------------------
+AP@0.50:0.95          29.62%
+AP@0.50               47.60%
+AP@0.75               30.62%
+AP_small              19.32%
+AP_medium             43.22%
+AP_large              51.57%
+
+Additional Metrics:
+--------------------------------------------------------------------------------
+AR@0.50:0.95 (max=100)          43.90%
+AR_small                        34.27%
+AR_medium                       58.55%
+AR_large                        71.25%
