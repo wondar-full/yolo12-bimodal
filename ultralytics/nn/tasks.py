@@ -64,6 +64,7 @@ from ultralytics.nn.modules import (
     RepNCSPELAN4,
     RepVGGDW,
     ResNetLayer,
+    RGBDGGFEFusion,  # RGB-D fusion + GGFE enhancement
     RGBDMidFusion,  # RGB-D mid-level fusion
     RGBDStem,  # RGB-D dual-branch stem
     RTDETRDecoder,
@@ -188,9 +189,9 @@ class BaseModel(torch.nn.Module):
             if profile:
                 self._profile_one_layer(m, x, dt)
             
-            # 📌 RGB-D specific: Handle RGBDMidFusion dual-input
-            if hasattr(m, '__class__') and m.__class__.__name__ == 'RGBDMidFusion':
-                # RGBDMidFusion requires two inputs: (rgb_feat, depth_skip)
+            # 📌 RGB-D specific: Handle RGBDMidFusion and RGBDGGFEFusion dual-input
+            if hasattr(m, '__class__') and m.__class__.__name__ in ['RGBDMidFusion', 'RGBDGGFEFusion']:
+                # Both modules require two inputs: (rgb_feat, depth_skip)
                 # f should be a list of two indices: [rgb_layer_idx, depth_layer_idx]
                 if isinstance(m.f, list) and len(m.f) == 2:
                     rgb_feat_idx = m.f[0]
@@ -215,7 +216,7 @@ class BaseModel(torch.nn.Module):
                     # Forward with two inputs
                     x = m(rgb_feat, depth_skip)
                 else:
-                    # Fallback: single input (should not happen for RGBDMidFusion)
+                    # Fallback: single input (should not happen for RGBDMidFusion/RGBDGGFEFusion)
                     x = m(x)
             else:
                 # Standard forward pass for other modules
@@ -1767,6 +1768,29 @@ def parse_model(d, ch, verbose=True):
             else:
                 raise ValueError(
                     f"RGBDMidFusion requires 'from' to be a list of 2 indices [rgb_layer, depth_layer], "
+                    f"but got {f}"
+                )
+        elif m.__name__ == 'RGBDGGFEFusion':
+            # RGB-D fusion + GGFE: args = [rgb_channels, depth_channels, reduction, fusion_weight, use_ggfe, ggfe_reduction]
+            # from: [rgb_feat_layer, depth_skip_layer] (e.g., [4, 0])
+            # Same logic as RGBDMidFusion, but with additional GGFE parameters
+            if isinstance(f, list) and len(f) == 2:
+                # f[0]: RGB feature layer index
+                # f[1]: Depth skip connection layer index
+                rgb_channels = ch[f[0]]  # RGB feature channels
+                depth_channels = args[1] if len(args) > 1 else ch[f[1]]  # Depth channels (default 64)
+                c1 = rgb_channels  # input is RGB features
+                c2 = rgb_channels  # output preserves RGB channel count
+                # args[0] is rgb_channels (will be replaced)
+                # args[1] is depth_channels (64)
+                # args[2] is reduction (16)
+                # args[3] is fusion_weight (0.3)
+                # args[4] is use_ggfe (True)
+                # args[5] is ggfe_reduction (8)
+                args = [rgb_channels, depth_channels, *args[2:]]  # [rgb_ch, depth_ch, reduction, fusion_weight, use_ggfe, ggfe_reduction]
+            else:
+                raise ValueError(
+                    f"RGBDGGFEFusion requires 'from' to be a list of 2 indices [rgb_layer, depth_layer], "
                     f"but got {f}"
                 )
         elif m in frozenset({DepthGatedFusion, GeometryPriorGenerator}):
